@@ -1,3 +1,8 @@
+import subprocess
+
+from threading import Thread
+
+
 class BackgroundPopen(subprocess.Popen):
     @staticmethod
     def prefix_handler(prefix, io):

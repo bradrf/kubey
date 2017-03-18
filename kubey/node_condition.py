@@ -1,4 +1,5 @@
 import re
+import click
 
 
 class NodeCondition(object):
@@ -10,7 +11,7 @@ class NodeCondition(object):
 
     def __repr__(self):
         if self._highlight:
-            ok = 'True' if self.name == 'Ready' else 'False' # other conditions have True has "bad"
+            ok = 'True' if self.name == 'Ready' else 'False'  # other conditions have True has "bad"
             if self.status == ok:
                 return self.reason
             return click.style(str(self.reason), bold=True, fg='red')

@@ -1,6 +1,9 @@
+import sys
 import logging
 import subprocess
 import json
+
+from .background_popen import BackgroundPopen
 
 
 _logger = logging.getLogger(__name__)

@@ -75,7 +75,7 @@ def cli(ctx, cache_seconds, log_level, context, namespace, table_format, no_head
         query = 'items[?contains(metadata.namespace,\'%s\')]' % (namespace)
 
     ctx.obj = OpenStruct(
-        highlight = sys.stdout.isatty(),
+        highlight=sys.stdout.isatty(),
         cache_seconds=cache_seconds,
         table_format=table_format,
         no_headers=no_headers,
@@ -182,13 +182,16 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     remote_args = [command] + [pipes.quote(a) for a in arguments]
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
-    for (namespace, node, pod_name, containers) in each_match(obj, ['namespace', 'node', 'name', 'containers']):
+    # TODO: add option to include 'node' name in prefix
+    columns = ['namespace', 'node', 'name', 'containers']
+    for (namespace, node_name, pod_name, containers) in each_match(obj, columns):
         for container in containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = list(kexec_args) # copy
-            if prefix: args.append('[%s/%s/%s] ' % (pod_name, container.name))
+            args = list(kexec_args)  # copy
+            if prefix:
+                args.append('[%s/%s] ' % (pod_name, container.name))
             args += ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
             kexec(*args)
 
@@ -268,10 +271,9 @@ def health(obj, columns, flat):
         pods_selected[node_name].append(pod_name)
 
     query = 'items[?kind==\'Node\'].['\
-                'metadata.name,status.addresses[*].address,'\
-                'status.conditions[*].[type,status,message]'\
+            'metadata.name,status.addresses[*].address,'\
+            'status.conditions[*].[type,status,message]'\
             ']'
-    nodes = obj.nodes_cache.obj()
     addresses = {}
     conditions = {}
     for (node_name, addrs, condlist) in jmespath.search(query, obj.nodes_cache.obj()):
@@ -288,16 +290,19 @@ def health(obj, columns, flat):
     # TODO: restriction of pods still shows everything on node:
     #       kubey collab-production 'back|sqs' . health
 
+    extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES']
+
     for line in obj.kubectl.call_capture('top', 'node').splitlines():
         info = line.split()
-        if headers == None:
-            headers = info + ['CONDITIONS', 'PODS', 'ADDRESSES']
+        if headers is None:
+            headers = info + extra_columns
             if columns:
                 selected_columns = []
                 for c in columns:
                     matches = [i for (i, h) in enumerate(headers) if c in h.lower()]
                     selected_columns.extend(matches)
-            if obj.no_headers: headers = []
+            if obj.no_headers:
+                headers = []
             continue
         node_name = info[0]
         if node_name in pods_selected:
@@ -307,11 +312,12 @@ def health(obj, columns, flat):
                 info = [i for i in info if info.index(i) in selected_columns]
             rows.append(info)
 
-    rows = sorted(rows) # FIXME: should sort as we go
+    rows = sorted(rows)  # FIXME: should sort as we go
     if selected_columns:
         headers = [h for h in headers if headers.index(h) in selected_columns]
-    enumerable_indices = [i for (i, h) in enumerate(headers) if h in ('CONDITIONS', 'PODS', 'ADDRESSES')]
-    print tabulate(each_row(rows, flattener, *enumerable_indices), headers=headers, tablefmt=obj.table_format)
+    enumerable_indices = [i for (i, h) in enumerate(headers) if h in extra_columns]
+    print tabulate(each_row(rows, flattener, *enumerable_indices),
+                   headers=headers, tablefmt=obj.table_format)
 
 
 ######################################################################
@@ -324,11 +330,14 @@ def cache(obj, name, *args):
         cache_fn, obj.cache_seconds, obj.kubectl.call_json, 'get', name, *args
     )
 
+
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
 
+
 def container_index_of(columns):
     return columns.index('containers') if 'containers' in columns else None
+
 
 def each_match(obj, columns=['namespace', 'name', 'containers']):
     container_index = container_index_of(columns)
@@ -336,7 +345,7 @@ def each_match(obj, columns=['namespace', 'name', 'containers']):
     # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
     count = 0
     for pod in each_pod(obj, cols):
-        (pod_name, container_info), col_values = pod[:2], pod[2:] # FIXME: this is duplicating cols!
+        (pod_name, container_info), col_values = pod[:2], pod[2:]  # FIXME: duplicating cols!
         if not obj.pod_re.match(pod_name):
             continue
         containers = []
@@ -354,11 +363,13 @@ def each_match(obj, columns=['namespace', 'name', 'containers']):
             break
         yield(col_values)
 
+
 def each_pod(obj, columns):
     query = obj.namespace_query + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
     pods = obj.pods_cache.obj()
     for pod in jmespath.search(query, pods):
         yield pod
+
 
 def each_row(rows, flattener, *enumerable_indices):
     enumerable_indices = [i for i in enumerable_indices if i is not None]
