@@ -10,3 +10,7 @@ Sphinx==1.5.1
 PyYAML==3.12
 pytest==3.0.5
 mockfs==1.0.2
+tabulate==0.7.7
+click==6.7
+configstruct==0.3.0
+jmespath==0.9.2

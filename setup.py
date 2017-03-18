@@ -10,8 +10,10 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
-    'Click>=6.0',
-    # TODO: put package requirements here
+    'click>=6.7',
+    'tabulate>=0.7.7',
+    'configstruct>=0.3.0',
+    'jmespath>=0.9.2',
 ]
 
 test_requirements = [
@@ -33,7 +35,7 @@ setup(
                  'kubey'},
     entry_points={
         'console_scripts': [
-            'kubey=kubey.cli:main'
+            'kubey=kubey.cli:cli'
         ]
     },
     include_package_data=True,
