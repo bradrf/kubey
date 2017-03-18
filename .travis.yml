@@ -10,7 +10,6 @@ deploy:
   provider: pypi
   user: bradrf
 env:
-- TOXENV=py36
 - TOXENV=py35
 - TOXENV=py34
 - TOXENV=py33
