@@ -111,7 +111,7 @@ def list_pods(obj, columns, flat):
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
     rows = each_row(each_match(obj, columns), flattener, container_index_of(columns))
-    print tabulate(rows, headers=headers, tablefmt=obj.table_format)
+    click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
 @cli.command()
@@ -126,11 +126,11 @@ def webui(obj):
         urls.append(dash_endpoint + pod_path)
     if len(urls) == 1:
         url = urls[0]
-        print url
+        click.echo(url)
         click.launch(url)
     else:
         for url in urls:
-            print url
+            click.echo(url)
 
 
 @cli.command()
@@ -316,8 +316,8 @@ def health(obj, columns, flat):
     if selected_columns:
         headers = [h for h in headers if headers.index(h) in selected_columns]
     enumerable_indices = [i for (i, h) in enumerate(headers) if h in extra_columns]
-    print tabulate(each_row(rows, flattener, *enumerable_indices),
-                   headers=headers, tablefmt=obj.table_format)
+    click.echo(tabulate(each_row(rows, flattener, *enumerable_indices),
+                        headers=headers, tablefmt=obj.table_format))
 
 
 ######################################################################
