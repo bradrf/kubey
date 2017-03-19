@@ -50,9 +50,11 @@ _logger = logging.getLogger(__name__)
               show_default=True, help='output format of tabular data (e.g. listing)')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
 @click.option('--limit', type=int, help='limit number of matches')
+@click.option('--wide', is_flag=True, help='force use of wide output')
 @click.argument('match')
 @click.pass_context
-def cli(ctx, cache_seconds, log_level, context, namespace, table_format, no_headers, limit, match):
+def cli(ctx, cache_seconds, log_level, context, namespace,
+        table_format, no_headers, wide, limit, match):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands (default is to list those that matched).
 
@@ -62,6 +64,10 @@ def cli(ctx, cache_seconds, log_level, context, namespace, table_format, no_head
     POD         provide a regular expression to select one or more pods
     CONTAINER   provide a regular expression to select one or more containers
     '''
+
+    if not wide:
+        width, height = click.get_terminal_size()
+        wide = width > 160
 
     _logger.level = getattr(logging, log_level.upper())
 
@@ -80,6 +86,7 @@ def cli(ctx, cache_seconds, log_level, context, namespace, table_format, no_head
         table_format=table_format,
         no_headers=no_headers,
         limit=limit,
+        wide=wide,
         namespace_query=query,
         pod_re=re.compile(pod, re.IGNORECASE),
         container_re=re.compile(container, re.IGNORECASE),
@@ -107,10 +114,11 @@ def cli(ctx, cache_seconds, log_level, context, namespace, table_format, no_head
 def list_pods(obj, columns, flat):
     '''List available pods and containers for current context.'''
     # TODO: replace (extend?) node to be name instead of private ip now we have node info for health
+
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(each_match(obj, columns), flattener, container_index_of(columns))
+    rows = each_row(each_match(obj, columns), flattener)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
@@ -279,7 +287,7 @@ def health(obj, columns, flat):
     for (node_name, addrs, condlist) in jmespath.search(query, obj.nodes_cache.obj()):
         addrs = [a for a in set(addrs) if a not in node_name]
         addresses[node_name] = sorted(addrs, reverse=True)
-        conditions[node_name] = [NodeCondition(*(c + [obj.highlight])) for c in condlist]
+        conditions[node_name] = [NodeCondition(obj, *c) for c in condlist]
 
     headers = None
     selected_columns = None
@@ -315,9 +323,7 @@ def health(obj, columns, flat):
     rows = sorted(rows)  # FIXME: should sort as we go
     if selected_columns:
         headers = [h for h in headers if headers.index(h) in selected_columns]
-    enumerable_indices = [i for (i, h) in enumerate(headers) if h in extra_columns]
-    click.echo(tabulate(each_row(rows, flattener, *enumerable_indices),
-                        headers=headers, tablefmt=obj.table_format))
+    click.echo(tabulate(each_row(rows, flattener), headers=headers, tablefmt=obj.table_format))
 
 
 ######################################################################
@@ -352,7 +358,7 @@ def each_match(obj, columns=['namespace', 'name', 'containers']):
         for (name, ready, state, image) in container_info:
             if not obj.container_re.match(name):
                 continue
-            containers.append(Container(name, ready, state, image, obj.highlight))
+            containers.append(Container(obj, name, ready, state, image))
         if not containers:
             continue
         if container_index:
@@ -371,33 +377,36 @@ def each_pod(obj, columns):
         yield pod
 
 
-def each_row(rows, flattener, *enumerable_indices):
-    enumerable_indices = [i for i in enumerable_indices if i is not None]
+def each_row(rows, flattener):
     for row in rows:
-        if not enumerable_indices:
-            yield row
-            continue
+        row = list(row)  # copy row to avoid stomping on original items
 
         if flattener:
-            for i in enumerable_indices:
-                row[i] = flattener(row[i])
+            for item in row:
+                if is_iterable(item):
+                    row[i] = flattener(item)
             yield row
             continue
 
-        enumerables = {i: row[i] for i in enumerable_indices}
-        final_row = row
-        while True:
-            processing = False
-            for index, enumerable in enumerables.iteritems():
-                if not enumerable:
-                    continue
-                processing = True
-                final_row[index] = enumerable.pop(0)
-            if not processing:
-                break
-            yield final_row
-            final_row = [''] * len(row)
+        iterables = {}
+        for i, item in enumerate(row):
+            if is_iterable(item):
+                iterables[i] = list(item)  # copy item to avoid touching original
 
+        exploded = row
+        exploding = True  # do...until (try at least once)
+        while exploding:
+            exploding = False
+            for i, iterable in iterables.iteritems():
+                if len(iterable) > 0:
+                    exploding = True
+                    exploded[i] = iterable.pop(0)
+            yield exploded
+            exploded = [''] * len(row)  # reset next row with empty columns
+
+def is_iterable(item):
+    # just simple ones for now
+    return isinstance(item, list) or isinstance(item, tuple)
 
 ##########################
 if __name__ == '__main__':

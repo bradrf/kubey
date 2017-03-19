@@ -13,10 +13,6 @@ Kubey
         :target: https://kubey.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-.. image:: https://pyup.io/repos/github/bradrf/kubey/shield.svg
-     :target: https://pyup.io/repos/github/bradrf/kubey/
-     :alt: Updates
-
 
 Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous commands.
 
@@ -37,4 +33,3 @@ This package was created with Cookiecutter_ and the `audreyr/cookiecutter-pypack
 
 .. _Cookiecutter: https://github.com/audreyr/cookiecutter
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
-
