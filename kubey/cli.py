@@ -59,10 +59,15 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
     commands (default is to list those that matched).
 
     \b
-    MATCH       <POD>[/<CONTAINER>]
-
+    MATCH       [<NODE>/]<POD>[/<CONTAINER>]
+    \b
+    NODE        provide a regular expression to select one or more nodes
     POD         provide a regular expression to select one or more pods
     CONTAINER   provide a regular expression to select one or more containers
+    \b
+    Partial match using just node or just node and pod, provide trailing slash:
+        my-node//          match all pods and containers hosted in my-node
+        my-node/my-pod/    match all containers hosted in my-node/my-pod
     '''
 
     if not wide:
@@ -71,9 +76,10 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
     _logger.level = getattr(logging, log_level.upper())
 
-    match_items = match.split('/', 1)
+    match_items = match.split('/', 2)
+    node = match_items.pop(0) if len(match_items) > 2 else ''
     pod = match_items.pop(0)
-    container = match_items.pop(0) if len(match_items) > 0 else '.'
+    container = match_items.pop(0) if len(match_items) > 0 else ''
 
     if namespace == ANY_NAMESPACE:
         query = 'items[*]'
@@ -82,12 +88,14 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
     ctx.obj = OpenStruct(
         highlight=sys.stdout.isatty(),
+        namespace=namespace,
         cache_seconds=cache_seconds,
         table_format=table_format,
         no_headers=no_headers,
         limit=limit,
         wide=wide,
         namespace_query=query,
+        node_re=re.compile(node, re.IGNORECASE),
         pod_re=re.compile(pod, re.IGNORECASE),
         container_re=re.compile(container, re.IGNORECASE),
         kubectl=KubeCtl(context),
@@ -274,8 +282,11 @@ def health(obj, columns, flat):
     flattener = flatten if flat else None
 
     pods_selected = defaultdict(list)
-    for (node_name, pod_name) in each_pod(obj, ['node', 'name']):
-        pods_selected[node_name].append(pod_name)
+    for (node_name, pod_name, namespace) in each_pod(obj, ['node', 'name', 'namespace']):
+        if obj.node_re.search(node_name):
+            if obj.namespace == ANY_NAMESPACE:
+                pod_name = '%s/%s' % (namespace, pod_name)
+            pods_selected[node_name].append(pod_name)
 
     query = 'items[?kind==\'Node\'].['\
             'metadata.name,status.addresses[*].address,'\
@@ -348,16 +359,18 @@ def container_index_of(columns):
 
 def each_match(obj, columns=['namespace', 'name', 'containers']):
     container_index = container_index_of(columns)
-    cols = ['name', 'containers'] + columns
+    cols = ['node', 'name', 'containers'] + columns
     # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
     count = 0
     for pod in each_pod(obj, cols):
-        (pod_name, container_info), col_values = pod[:2], pod[2:]  # FIXME: duplicating cols!
-        if not obj.pod_re.match(pod_name):
+        (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]  # FIXME: duplication
+        if not obj.node_re.search(node_name):
+            continue
+        if not obj.pod_re.search(pod_name):
             continue
         containers = []
         for (name, ready, state, image) in container_info:
-            if not obj.container_re.match(name):
+            if not obj.container_re.search(name):
                 continue
             containers.append(Container(obj, name, ready, state, image))
         if not containers:
