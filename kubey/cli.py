@@ -395,13 +395,13 @@ def each_row(rows, flattener):
     for row in rows:
         row = list(row)  # copy row to avoid stomping on original items
         if flattener:
-            for item in row:
+            for i, item in enumerate(row):
                 if is_iterable(item):
                     row[i] = flattener(item)
             yield row
             continue
         # extract out a _copy_ of iterable items and populate into "exploded" rows
-        iterables =  {i: list(item) for i, item in enumerate(row) if is_iterable(item)}
+        iterables = {i: list(item) for i, item in enumerate(row) if is_iterable(item)}
         exploded = row
         while True:
             exploding = False
@@ -413,6 +413,7 @@ def each_row(rows, flattener):
                 break
             yield exploded
             exploded = [''] * len(row)  # reset next row with empty columns
+
 
 def is_iterable(item):
     # just simple ones for now
