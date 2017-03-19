@@ -114,7 +114,6 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 def list_pods(obj, columns, flat):
     '''List available pods and containers for current context.'''
     # TODO: replace (extend?) node to be name instead of private ip now we have node info for health
-
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
@@ -298,8 +297,7 @@ def health(obj, columns, flat):
     # TODO: restriction of pods still shows everything on node:
     #       kubey collab-production 'back|sqs' . health
 
-    extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES']
-
+    extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
     for line in obj.kubectl.call_capture('top', 'node').splitlines():
         info = line.split()
         if headers is None:
@@ -315,7 +313,10 @@ def health(obj, columns, flat):
         node_name = info[0]
         if node_name in pods_selected:
             pod_names = pods_selected[node_name]
-            info.extend([conditions[node_name], pod_names, addresses[node_name]])
+            if obj.wide:
+                info.extend([conditions[node_name], pod_names, addresses[node_name]])
+            else:
+                info.append(conditions[node_name])
             if selected_columns:
                 info = [i for i in info if info.index(i) in selected_columns]
             rows.append(info)
@@ -380,33 +381,30 @@ def each_pod(obj, columns):
 def each_row(rows, flattener):
     for row in rows:
         row = list(row)  # copy row to avoid stomping on original items
-
         if flattener:
             for item in row:
                 if is_iterable(item):
                     row[i] = flattener(item)
             yield row
             continue
-
-        iterables = {}
-        for i, item in enumerate(row):
-            if is_iterable(item):
-                iterables[i] = list(item)  # copy item to avoid touching original
-
+        # extract out a _copy_ of iterable items and populate into "exploded" rows
+        iterables =  {i: list(item) for i, item in enumerate(row) if is_iterable(item)}
         exploded = row
-        exploding = True  # do...until (try at least once)
-        while exploding:
+        while True:
             exploding = False
             for i, iterable in iterables.iteritems():
                 if len(iterable) > 0:
                     exploding = True
                     exploded[i] = iterable.pop(0)
+            if not exploding:
+                break
             yield exploded
             exploded = [''] * len(row)  # reset next row with empty columns
 
 def is_iterable(item):
     # just simple ones for now
     return isinstance(item, list) or isinstance(item, tuple)
+
 
 ##########################
 if __name__ == '__main__':
