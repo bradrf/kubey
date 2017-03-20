@@ -5,6 +5,9 @@ import time
 
 class Cache(object):
     def __init__(self, path, seconds, retriever, *retriever_args):
+        parent = os.path.dirname(path)
+        if not os.path.exists(parent):
+            os.makedirs(parent)
         self.path = path
         self.seconds = seconds
         self.retriever = retriever

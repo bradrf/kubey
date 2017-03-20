@@ -60,7 +60,7 @@ class KubeCtl(object):
             commandline.extend(['--context', self._context])
         commandline.append(command)
         commandline.extend(args)
-        _logger.debug(' '.join([str(i) for i in commandline]))
+        _logger.debug(' '.join(map(str, commandline)))
         return commandline
 
     def _check(self, cl, rc):
