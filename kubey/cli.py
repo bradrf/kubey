@@ -13,15 +13,11 @@ from configstruct import OpenStruct
 from .kubey import Kubey
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s #%(process)d] %(levelname)-8s %(name)-12s %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S%z'
-)
-_logger = logging.getLogger(__name__)
+_logger = None
 
 
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
+@click.version_option()
 @click.option('--cache-seconds', envvar='KUBEY_CACHE_SECONDS', default=300, show_default=True,
               help='change number of seconds to keep pod info cached')
 @click.option('-l', '--log-level', envvar='KUBEY_LOG_LEVEL',
@@ -55,11 +51,16 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         my-node/my-pod/    match all containers hosted in my-node/my-pod
     '''
 
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format='[%(asctime)s #%(process)d] %(levelname)-8s %(name)-12s %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S%z'
+    )
+    _logger = logging.getLogger(__name__)
+
     if not wide:
         width, height = click.get_terminal_size()
         wide = width > 160
-
-    _logger.level = getattr(logging, log_level.upper())
 
     ctx.obj = OpenStruct(
         highlight=sys.stdout.isatty(),
@@ -139,7 +140,7 @@ def repl(ctx, repl, arguments):
 def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
-    kubectl = obj['kubectl']
+    kubectl = kubey.kubectl
     kexec_args = ['exec']
     if prefix:
         kexec = kubectl.call_prefix
@@ -164,7 +165,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 
     # TODO: add option to include 'node' name in prefix
     columns = ['namespace', 'node', 'name', 'containers']
-    for (namespace, node_name, pod_name, containers) in each_match(obj, columns):
+    for (namespace, node_name, pod_name, containers) in kubey.each(columns):
         for container in containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
@@ -182,6 +183,22 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
         click.get_current_context().exit(kubectl.final_rc)
 
 
+@cli.command(context_settings=dict(ignore_unknown_options=True))
+@click.argument('command')
+@click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
+@click.pass_obj
+def each_pod(obj, command, arguments):
+    '''Invoke a command for each pod matched.'''
+    width, height = click.get_terminal_size()
+    kubectl = obj.kubey.kubectl
+    for (namespace, pod_name) in obj.kubey.each(['namespace', 'name']):
+        title = '-- %s/%s ' % (namespace, pod_name)
+        title += '-' * (width - len(title))
+        click.echo(title)
+        args = ('-n', namespace) + arguments + (pod_name,)
+        kubectl.call(command, *args)
+
+
 @cli.command()
 @click.option('-f', '--follow', is_flag=True,
               help='stream new logs until interrupted')
@@ -195,7 +212,7 @@ def tail(obj, follow, prefix, number):
     NUMBER is a count of recent lines or a relative duration (e.g. 5s, 2m, 3h)
     '''
 
-    kubectl = obj['kubectl']
+    kubectl = obj.kubey.kubectl
 
     if re.match(r'^\d+$', number):
         log_args = ['--tail', str(number)]
@@ -205,11 +222,8 @@ def tail(obj, follow, prefix, number):
     if follow:
         log_args.append('-f')
 
-    for (namespace, pod_name, containers) in each_match(obj):
+    for (namespace, pod_name, containers) in obj.kubey.each():
         for container in containers:
-            if not container.ready:
-                _logger.warn('skipping ' + str(container))
-                continue
             args = ['-n', namespace, '-c', container.name] + log_args + [pod_name]
             if prefix:
                 prefix = '[%s:%s] ' % (pod_name, container.name)
@@ -220,18 +234,6 @@ def tail(obj, follow, prefix, number):
     kubectl.wait()
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
-
-
-# @cli.command(context_settings=dict(ignore_unknown_options=True))
-# @click.argument('command')
-# @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
-# @click.pass_obj
-# def call(obj, command, arguments):
-#     '''Generic proxy for any other kubectl request'''
-#     kubectl = obj['kubectl']
-#     items = kubectl.call_json(command, *arguments)['items']
-#     headers = [] if obj.no_headers else 'keys'
-#     print tabulate(items, headers=headers, tablefmt=obj.table_format)
 
 
 @cli.command()

@@ -29,7 +29,7 @@ class Kubey(object):
 
     def __init__(self, config):
         self._config = config
-        self._kubectl = KubeCtl(config.context)
+        self.kubectl = KubeCtl(config.context)
         self._split_match()
         self._namespaces = self._cache('namespaces')
         self._nodes = self._cache('nodes')
@@ -38,7 +38,7 @@ class Kubey(object):
 
     def __repr__(self):
         return "<Kubey: context=%s namespace=%s match=%s/%s/%s>" % (
-            self._kubectl.context, self._namespace,
+            self.kubectl.context, self._namespace,
             self._node_re.pattern, self._pod_re.pattern, self._container_re.pattern)
 
     def each(self, columns=['namespace', 'name', 'containers']):
@@ -103,8 +103,8 @@ class Kubey(object):
 
     def _cache(self, name, *args):
         cache_fn = os.path.join(
-            self._config.cache_path, '.%s_%s_%s' % (__name__, self._kubectl.context, name)
+            self._config.cache_path, '.%s_%s_%s' % (__name__, self.kubectl.context, name)
         )
         return Cache(
-            cache_fn, self._config.cache_seconds, self._kubectl.call_json, 'get', name, *args
+            cache_fn, self._config.cache_seconds, self.kubectl.call_json, 'get', name, *args
         )
