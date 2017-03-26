@@ -10,23 +10,8 @@ from collections import defaultdict
 from tabulate import tabulate, tabulate_formats
 from configstruct import OpenStruct
 
-from .kubectl import KubeCtl
-from .cache import Cache
-from .container import Container
-from .node_condition import NodeCondition
+from .kubey import Kubey
 
-
-ANY_NAMESPACE = '.'
-
-COLUMN_MAP = {
-    'name': 'metadata.name',
-    'namespace': 'metadata.namespace',
-    'node': 'spec.nodeName',
-    'node-ip': 'status.hostIP',
-    'status': 'status.phase',
-    # 'conditions': 'status.conditions[*].[type,status,message]',
-    'containers': 'status.containerStatuses[*].[name,ready,state,image]',
-}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,46 +61,26 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
     _logger.level = getattr(logging, log_level.upper())
 
-    match_items = match.split('/', 2)
-    node = match_items.pop(0) if len(match_items) > 2 else ''
-    pod = match_items.pop(0)
-    container = match_items.pop(0) if len(match_items) > 0 else ''
-
-    if namespace == ANY_NAMESPACE:
-        query = 'items[*]'
-    else:
-        query = 'items[?contains(metadata.namespace,\'%s\')]' % (namespace)
-
     ctx.obj = OpenStruct(
         highlight=sys.stdout.isatty(),
-        namespace=namespace,
+        cache_path=os.path.expanduser('~'),
         cache_seconds=cache_seconds,
+        context=context,
+        namespace=namespace,
         table_format=table_format,
         no_headers=no_headers,
-        limit=limit,
         wide=wide,
-        namespace_query=query,
-        node_re=re.compile(node, re.IGNORECASE),
-        pod_re=re.compile(pod, re.IGNORECASE),
-        container_re=re.compile(container, re.IGNORECASE),
-        kubectl=KubeCtl(context),
+        limit=limit,
+        match=match,
     )
-
-    cache(ctx.obj, 'namespaces')
-    cache(ctx.obj, 'nodes')
-    cache(ctx.obj, 'pods', '--all-namespaces')
-
-    if (namespace != ANY_NAMESPACE):
-        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (namespace)
-        if not jmespath.search(validation_query, ctx.obj.namespaces_cache.obj()):
-            ctx.fail('Namespace not found')
+    ctx.obj.kubey = Kubey(ctx.obj)
 
     if not ctx.invoked_subcommand:
         ctx.invoke(list_pods)
 
 
 @cli.command(name='list')
-@click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True,
+@click.option('-c', '--columns', default=','.join(Kubey.COLUMN_MAP.keys()), show_default=True,
               help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
@@ -125,7 +90,7 @@ def list_pods(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(each_match(obj, columns), flattener)
+    rows = each_row(obj.kubey.each(columns), flattener)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
@@ -340,55 +305,8 @@ def health(obj, columns, flat):
 
 ######################################################################
 
-def cache(obj, name, *args):
-    cache_fn = os.path.join(
-        os.path.expanduser('~'), '.%s_%s_%s' % (__name__, obj.kubectl.context, name)
-    )
-    obj[name + '_cache'] = Cache(
-        cache_fn, obj.cache_seconds, obj.kubectl.call_json, 'get', name, *args
-    )
-
-
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
-
-
-def container_index_of(columns):
-    return columns.index('containers') if 'containers' in columns else None
-
-
-def each_match(obj, columns=['namespace', 'name', 'containers']):
-    container_index = container_index_of(columns)
-    cols = ['node', 'name', 'containers'] + columns
-    # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
-    count = 0
-    for pod in each_pod(obj, cols):
-        (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]  # FIXME: duplication
-        if not obj.node_re.search(node_name):
-            continue
-        if not obj.pod_re.search(pod_name):
-            continue
-        containers = []
-        for (name, ready, state, image) in container_info:
-            if not obj.container_re.search(name):
-                continue
-            containers.append(Container(obj, name, ready, state, image))
-        if not containers:
-            continue
-        if container_index:
-            col_values[container_index] = containers
-        count += 1
-        if obj.limit and obj.limit < count:
-            _logger.debug('Prematurely stopping at match limit of ' + str(obj.limit))
-            break
-        yield(col_values)
-
-
-def each_pod(obj, columns):
-    query = obj.namespace_query + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
-    pods = obj.pods_cache.obj()
-    for pod in jmespath.search(query, pods):
-        yield pod
 
 
 def each_row(rows, flattener):
