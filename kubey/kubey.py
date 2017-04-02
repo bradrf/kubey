@@ -54,7 +54,8 @@ class Kubey(object):
         # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
         count = 0
         for pod in self.each_pod(cols):
-            (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]  # FIXME: duplication
+            # FIXME: duplication
+            (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]
             if not self._node_re.search(node_name):
                 continue
             if not self._pod_re.search(pod_name):
@@ -70,14 +71,15 @@ class Kubey(object):
                 col_values[container_index] = containers
             count += 1
             if self._config.maximum and self._config.maximum < count:
-                _logger.debug('Prematurely stopping at match maximum of ' + str(self._config.maximum))
+                _logger.debug('Prematurely stopping at match maximum of ' +
+                              str(self._config.maximum))
                 break
             yield(col_values)
 
     def each_pod(self, *columns):
         columns = self._list_from(columns)
         query = self._namespace_query + '.[' + \
-                ','.join([self.POD_COLUMN_MAP[c] for c in columns]) + ']'
+            ','.join([self.POD_COLUMN_MAP[c] for c in columns]) + ']'
         for pod in jmespath.search(query, self._pods.obj()):
             yield pod
 
@@ -142,7 +144,7 @@ class Kubey(object):
         validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (
             self._config.namespace)
         if not jmespath.search(validation_query, self._namespaces.obj()):
-            raise UnknownNamespace(self._namespace)
+            raise self.UnknownNamespace(self._config.namespace)
 
     def _split_match(self):
         match_items = self._config.match.split('/', 2)

@@ -4,9 +4,7 @@ import logging
 import re
 import pipes
 import click
-import jmespath
 
-from collections import defaultdict
 from tabulate import tabulate, tabulate_formats
 from configstruct import OpenStruct
 
@@ -56,6 +54,7 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         format='[%(asctime)s #%(process)d] %(levelname)-8s %(name)-12s %(message)s',
         datefmt='%Y-%m-%dT%H:%M:%S%z'
     )
+    global _logger
     _logger = logging.getLogger(__name__)
 
     if not wide:
@@ -99,10 +98,11 @@ def list_pods(obj, columns, flat):
 @click.pass_obj
 def webui(obj):
     '''List dashboard links for matching pods. Three or fewer will be opened automatically.'''
-    info = click.unstyle(obj.kubectl.call_capture('cluster-info'))
+    kubectl = obj.kubey.kubectl
+    info = click.unstyle(kubectl.call_capture('cluster-info'))
     dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
     urls = []
-    for (namespace, pod_name, containers) in each_match(obj):
+    for (namespace, pod_name, containers) in obj.kubey.each():
         pod_path = '/#/pod/%s/%s?namespace=%s' % (namespace, pod_name, namespace)
         urls.append(dash_endpoint + pod_path)
     if len(urls) == 1:
@@ -253,7 +253,7 @@ def health(obj, columns, flat):
     pods_selected = {}
 
     for (node_name, addrs, conds, pods) in \
-        obj.kubey.each_node('name', 'addresses', 'conditions', 'pods'):
+            obj.kubey.each_node('name', 'addresses', 'conditions', 'pods'):
         addrs = [a for a in set(addrs) if a not in node_name]
         addresses[node_name] = sorted(addrs, reverse=True)
         conditions[node_name] = conds
