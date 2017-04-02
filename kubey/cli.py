@@ -29,13 +29,13 @@ _logger = None
 @click.option('-f', '--format', 'table_format', envvar='KUBEY_TABLE_FORMAT',
               type=click.Choice(tabulate_formats), default='simple',
               show_default=True, help='output format of tabular data (e.g. listing)')
+@click.option('-m', '--max', 'maximum', type=int, help='max number of matches')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
-@click.option('--limit', type=int, help='limit number of matches')
 @click.option('--wide', is_flag=True, help='force use of wide output')
 @click.argument('match')
 @click.pass_context
 def cli(ctx, cache_seconds, log_level, context, namespace,
-        table_format, no_headers, wide, limit, match):
+        table_format, maximum, no_headers, wide, match):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands (default is to list those that matched).
 
@@ -71,7 +71,7 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         table_format=table_format,
         no_headers=no_headers,
         wide=wide,
-        limit=limit,
+        maximum=maximum,
         match=match,
     )
     ctx.obj.kubey = Kubey(ctx.obj)
@@ -81,7 +81,7 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
 
 @cli.command(name='list')
-@click.option('-c', '--columns', default=','.join(Kubey.COLUMN_MAP.keys()), show_default=True,
+@click.option('-c', '--columns', default=','.join(Kubey.POD_COLUMN_MAP.keys()), show_default=True,
               help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
@@ -140,7 +140,7 @@ def repl(ctx, repl, arguments):
 def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
-    kubectl = kubey.kubectl
+    kubectl = obj.kubey.kubectl
     kexec_args = ['exec']
     if prefix:
         kexec = kubectl.call_prefix
@@ -165,7 +165,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 
     # TODO: add option to include 'node' name in prefix
     columns = ['namespace', 'node', 'name', 'containers']
-    for (namespace, node_name, pod_name, containers) in kubey.each(columns):
+    for (namespace, node_name, pod_name, containers) in obj.kubey.each(columns):
         for container in containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
@@ -248,23 +248,16 @@ def health(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
 
-    pods_selected = defaultdict(list)
-    for (node_name, pod_name, namespace) in each_pod(obj, ['node', 'name', 'namespace']):
-        if obj.node_re.search(node_name):
-            if obj.namespace == ANY_NAMESPACE:
-                pod_name = '%s/%s' % (namespace, pod_name)
-            pods_selected[node_name].append(pod_name)
-
-    query = 'items[?kind==\'Node\'].['\
-            'metadata.name,status.addresses[*].address,'\
-            'status.conditions[*].[type,status,message]'\
-            ']'
     addresses = {}
     conditions = {}
-    for (node_name, addrs, condlist) in jmespath.search(query, obj.nodes_cache.obj()):
+    pods_selected = {}
+
+    for (node_name, addrs, conds, pods) in \
+        obj.kubey.each_node('name', 'addresses', 'conditions', 'pods'):
         addrs = [a for a in set(addrs) if a not in node_name]
         addresses[node_name] = sorted(addrs, reverse=True)
-        conditions[node_name] = [NodeCondition(obj, *c) for c in condlist]
+        conditions[node_name] = conds
+        pods_selected[node_name] = pods
 
     headers = None
     selected_columns = None
@@ -275,8 +268,9 @@ def health(obj, columns, flat):
     # TODO: restriction of pods still shows everything on node:
     #       kubey collab-production 'back|sqs' . health
 
+    kubectl = obj.kubey.kubectl
     extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
-    for line in obj.kubectl.call_capture('top', 'node').splitlines():
+    for line in kubectl.call_capture('top', 'node').splitlines():
         info = line.split()
         if headers is None:
             headers = info + extra_columns

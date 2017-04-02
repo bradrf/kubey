@@ -6,6 +6,7 @@ import jmespath
 from .kubectl import KubeCtl
 from .cache import Cache
 from .container import Container
+from .node_condition import NodeCondition
 
 
 _logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class Kubey(object):
 
     ANY = '.'
 
-    COLUMN_MAP = {
+    POD_COLUMN_MAP = {
         'name': 'metadata.name',
         'namespace': 'metadata.namespace',
         'node': 'spec.nodeName',
@@ -25,6 +26,12 @@ class Kubey(object):
         'status': 'status.phase',
         # 'conditions': 'status.conditions[*].[type,status,message]',
         'containers': 'status.containerStatuses[*].[name,ready,state,image]',
+    }
+
+    NODE_COLUMN_MAP = {
+        'name': 'metadata.name',
+        'addresses': 'status.addresses[*].address',
+        'conditions': 'status.conditions[*].[type,status,message]',
     }
 
     def __init__(self, config):
@@ -38,11 +45,11 @@ class Kubey(object):
 
     def __repr__(self):
         return "<Kubey: context=%s namespace=%s match=%s/%s/%s>" % (
-            self.kubectl.context, self._namespace,
+            self.kubectl.context, self._config.namespace,
             self._node_re.pattern, self._pod_re.pattern, self._container_re.pattern)
 
     def each(self, columns=['namespace', 'name', 'containers']):
-        container_index = self._container_index_of(columns)
+        container_index = self._index_of('containers', columns)
         cols = ['node', 'name', 'containers'] + columns
         # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
         count = 0
@@ -62,24 +69,69 @@ class Kubey(object):
             if container_index:
                 col_values[container_index] = containers
             count += 1
-            if self._config.limit and self._config.limit < count:
-                _logger.debug('Prematurely stopping at match limit of ' + str(self._config.limit))
+            if self._config.maximum and self._config.maximum < count:
+                _logger.debug('Prematurely stopping at match maximum of ' + str(self._config.maximum))
                 break
             yield(col_values)
 
-    def each_pod(self, columns):
-        query = self._namespace_query + '.[' + ','.join([self.COLUMN_MAP[c] for c in columns]) + ']'
-        pods = self._pods.obj()
-        for pod in jmespath.search(query, pods):
+    def each_pod(self, *columns):
+        columns = self._list_from(columns)
+        query = self._namespace_query + '.[' + \
+                ','.join([self.POD_COLUMN_MAP[c] for c in columns]) + ']'
+        for pod in jmespath.search(query, self._pods.obj()):
             yield pod
+
+    def each_node(self, *columns):
+        columns = self._list_from(columns)
+        pod_index = self._index_of('pods', columns)
+        if pod_index:
+            columns = list(columns)
+            del(columns[pod_index])
+        condition_index = self._index_of('conditions', columns)
+        cols = ['name', 'conditions'] + columns
+        query = 'items[?kind==\'Node\'].[' + \
+                ','.join([self.NODE_COLUMN_MAP[c] for c in cols]) + ']'
+        count = 0
+        for node in jmespath.search(query, self._nodes.obj()):
+            (name, condition_info), col_values = node[:2], node[2:]  # FIXME: duplication
+            if not self._node_re.search(name):
+                continue
+            count += 1
+            if self._config.maximum and self._config.maximum < count:
+                _logger.debug('Prematurely stopping at match maximum of ' +
+                              str(self._config.maximum))
+                break
+            if condition_index:
+                col_values[condition_index] = [
+                    NodeCondition(self._config, *c) for c in condition_info
+                ]
+            if pod_index:
+                if self._config.namespace == self.ANY:
+                    col_values.insert(pod_index, [
+                        (n + '/' + p) for n, p in self.each_pod('namespace', 'name')
+                        if self._pod_re.search(p)
+                    ])
+                else:
+                    col_values.insert(pod_index, [
+                        p for n, p in self.each_pod('namespace', 'name')
+                        if self._namespace_re.search(n) and self._pod_re.search(p)
+                    ])
+            yield(col_values)
 
     # Private:
 
     @staticmethod
-    def _container_index_of(columns):
-        return columns.index('containers') if 'containers' in columns else None
+    def _list_from(lst):
+        if lst and len(lst) == 1 and (isinstance(lst, list) or isinstance(lst, tuple)):
+            return lst[0]
+        return lst
+
+    @staticmethod
+    def _index_of(name, columns):
+        return columns.index(name) if name in columns else None
 
     def _set_namespace(self):
+        self._namespace_re = re.compile(self._config.namespace)
         if self._config.namespace == self.ANY:
             self._namespace_query = 'items[*]'
         else:
