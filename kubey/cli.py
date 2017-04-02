@@ -4,39 +4,18 @@ import logging
 import re
 import pipes
 import click
-import jmespath
 
-from collections import defaultdict
 from tabulate import tabulate, tabulate_formats
 from configstruct import OpenStruct
 
-from .kubectl import KubeCtl
-from .cache import Cache
-from .container import Container
-from .node_condition import NodeCondition
+from .kubey import Kubey
 
 
-ANY_NAMESPACE = '.'
-
-COLUMN_MAP = {
-    'name': 'metadata.name',
-    'namespace': 'metadata.namespace',
-    'node': 'spec.nodeName',
-    'node-ip': 'status.hostIP',
-    'status': 'status.phase',
-    # 'conditions': 'status.conditions[*].[type,status,message]',
-    'containers': 'status.containerStatuses[*].[name,ready,state,image]',
-}
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s #%(process)d] %(levelname)-8s %(name)-12s %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S%z'
-)
-_logger = logging.getLogger(__name__)
+_logger = None
 
 
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
+@click.version_option()
 @click.option('--cache-seconds', envvar='KUBEY_CACHE_SECONDS', default=300, show_default=True,
               help='change number of seconds to keep pod info cached')
 @click.option('-l', '--log-level', envvar='KUBEY_LOG_LEVEL',
@@ -48,13 +27,13 @@ _logger = logging.getLogger(__name__)
 @click.option('-f', '--format', 'table_format', envvar='KUBEY_TABLE_FORMAT',
               type=click.Choice(tabulate_formats), default='simple',
               show_default=True, help='output format of tabular data (e.g. listing)')
+@click.option('-m', '--max', 'maximum', type=int, help='max number of matches')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
-@click.option('--limit', type=int, help='limit number of matches')
 @click.option('--wide', is_flag=True, help='force use of wide output')
 @click.argument('match')
 @click.pass_context
 def cli(ctx, cache_seconds, log_level, context, namespace,
-        table_format, no_headers, wide, limit, match):
+        table_format, maximum, no_headers, wide, match):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands (default is to list those that matched).
 
@@ -70,52 +49,38 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         my-node/my-pod/    match all containers hosted in my-node/my-pod
     '''
 
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format='[%(asctime)s #%(process)d] %(levelname)-8s %(name)-12s %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S%z'
+    )
+    global _logger
+    _logger = logging.getLogger(__name__)
+
     if not wide:
         width, height = click.get_terminal_size()
         wide = width > 160
 
-    _logger.level = getattr(logging, log_level.upper())
-
-    match_items = match.split('/', 2)
-    node = match_items.pop(0) if len(match_items) > 2 else ''
-    pod = match_items.pop(0)
-    container = match_items.pop(0) if len(match_items) > 0 else ''
-
-    if namespace == ANY_NAMESPACE:
-        query = 'items[*]'
-    else:
-        query = 'items[?contains(metadata.namespace,\'%s\')]' % (namespace)
-
     ctx.obj = OpenStruct(
         highlight=sys.stdout.isatty(),
-        namespace=namespace,
+        cache_path=os.path.expanduser('~'),
         cache_seconds=cache_seconds,
+        context=context,
+        namespace=namespace,
         table_format=table_format,
         no_headers=no_headers,
-        limit=limit,
         wide=wide,
-        namespace_query=query,
-        node_re=re.compile(node, re.IGNORECASE),
-        pod_re=re.compile(pod, re.IGNORECASE),
-        container_re=re.compile(container, re.IGNORECASE),
-        kubectl=KubeCtl(context),
+        maximum=maximum,
+        match=match,
     )
-
-    cache(ctx.obj, 'namespaces')
-    cache(ctx.obj, 'nodes')
-    cache(ctx.obj, 'pods', '--all-namespaces')
-
-    if (namespace != ANY_NAMESPACE):
-        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (namespace)
-        if not jmespath.search(validation_query, ctx.obj.namespaces_cache.obj()):
-            ctx.fail('Namespace not found')
+    ctx.obj.kubey = Kubey(ctx.obj)
 
     if not ctx.invoked_subcommand:
         ctx.invoke(list_pods)
 
 
 @cli.command(name='list')
-@click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True,
+@click.option('-c', '--columns', default=','.join(Kubey.POD_COLUMN_MAP.keys()), show_default=True,
               help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
@@ -125,7 +90,7 @@ def list_pods(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(each_match(obj, columns), flattener)
+    rows = each_row(obj.kubey.each(columns), flattener)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
@@ -133,10 +98,11 @@ def list_pods(obj, columns, flat):
 @click.pass_obj
 def webui(obj):
     '''List dashboard links for matching pods. Three or fewer will be opened automatically.'''
-    info = click.unstyle(obj.kubectl.call_capture('cluster-info'))
+    kubectl = obj.kubey.kubectl
+    info = click.unstyle(kubectl.call_capture('cluster-info'))
     dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
     urls = []
-    for (namespace, pod_name, containers) in each_match(obj):
+    for (namespace, pod_name, containers) in obj.kubey.each():
         pod_path = '/#/pod/%s/%s?namespace=%s' % (namespace, pod_name, namespace)
         urls.append(dash_endpoint + pod_path)
     if len(urls) == 1:
@@ -174,7 +140,7 @@ def repl(ctx, repl, arguments):
 def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
-    kubectl = obj['kubectl']
+    kubectl = obj.kubey.kubectl
     kexec_args = ['exec']
     if prefix:
         kexec = kubectl.call_prefix
@@ -199,7 +165,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 
     # TODO: add option to include 'node' name in prefix
     columns = ['namespace', 'node', 'name', 'containers']
-    for (namespace, node_name, pod_name, containers) in each_match(obj, columns):
+    for (namespace, node_name, pod_name, containers) in obj.kubey.each(columns):
         for container in containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
@@ -217,6 +183,22 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
         click.get_current_context().exit(kubectl.final_rc)
 
 
+@cli.command(context_settings=dict(ignore_unknown_options=True))
+@click.argument('command')
+@click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
+@click.pass_obj
+def each_pod(obj, command, arguments):
+    '''Invoke a command for each pod matched.'''
+    width, height = click.get_terminal_size()
+    kubectl = obj.kubey.kubectl
+    for (namespace, pod_name) in obj.kubey.each(['namespace', 'name']):
+        title = '-- %s/%s ' % (namespace, pod_name)
+        title += '-' * (width - len(title))
+        click.echo(title)
+        args = ('-n', namespace) + arguments + (pod_name,)
+        kubectl.call(command, *args)
+
+
 @cli.command()
 @click.option('-f', '--follow', is_flag=True,
               help='stream new logs until interrupted')
@@ -230,7 +212,7 @@ def tail(obj, follow, prefix, number):
     NUMBER is a count of recent lines or a relative duration (e.g. 5s, 2m, 3h)
     '''
 
-    kubectl = obj['kubectl']
+    kubectl = obj.kubey.kubectl
 
     if re.match(r'^\d+$', number):
         log_args = ['--tail', str(number)]
@@ -240,11 +222,8 @@ def tail(obj, follow, prefix, number):
     if follow:
         log_args.append('-f')
 
-    for (namespace, pod_name, containers) in each_match(obj):
+    for (namespace, pod_name, containers) in obj.kubey.each():
         for container in containers:
-            if not container.ready:
-                _logger.warn('skipping ' + str(container))
-                continue
             args = ['-n', namespace, '-c', container.name] + log_args + [pod_name]
             if prefix:
                 prefix = '[%s:%s] ' % (pod_name, container.name)
@@ -255,18 +234,6 @@ def tail(obj, follow, prefix, number):
     kubectl.wait()
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
-
-
-# @cli.command(context_settings=dict(ignore_unknown_options=True))
-# @click.argument('command')
-# @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
-# @click.pass_obj
-# def call(obj, command, arguments):
-#     '''Generic proxy for any other kubectl request'''
-#     kubectl = obj['kubectl']
-#     items = kubectl.call_json(command, *arguments)['items']
-#     headers = [] if obj.no_headers else 'keys'
-#     print tabulate(items, headers=headers, tablefmt=obj.table_format)
 
 
 @cli.command()
@@ -281,23 +248,16 @@ def health(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
 
-    pods_selected = defaultdict(list)
-    for (node_name, pod_name, namespace) in each_pod(obj, ['node', 'name', 'namespace']):
-        if obj.node_re.search(node_name):
-            if obj.namespace == ANY_NAMESPACE:
-                pod_name = '%s/%s' % (namespace, pod_name)
-            pods_selected[node_name].append(pod_name)
-
-    query = 'items[?kind==\'Node\'].['\
-            'metadata.name,status.addresses[*].address,'\
-            'status.conditions[*].[type,status,message]'\
-            ']'
     addresses = {}
     conditions = {}
-    for (node_name, addrs, condlist) in jmespath.search(query, obj.nodes_cache.obj()):
+    pods_selected = {}
+
+    for (node_name, addrs, conds, pods) in \
+            obj.kubey.each_node('name', 'addresses', 'conditions', 'pods'):
         addrs = [a for a in set(addrs) if a not in node_name]
         addresses[node_name] = sorted(addrs, reverse=True)
-        conditions[node_name] = [NodeCondition(obj, *c) for c in condlist]
+        conditions[node_name] = conds
+        pods_selected[node_name] = pods
 
     headers = None
     selected_columns = None
@@ -308,8 +268,9 @@ def health(obj, columns, flat):
     # TODO: restriction of pods still shows everything on node:
     #       kubey collab-production 'back|sqs' . health
 
+    kubectl = obj.kubey.kubectl
     extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
-    for line in obj.kubectl.call_capture('top', 'node').splitlines():
+    for line in kubectl.call_capture('top', 'node').splitlines():
         info = line.split()
         if headers is None:
             headers = info + extra_columns
@@ -340,55 +301,8 @@ def health(obj, columns, flat):
 
 ######################################################################
 
-def cache(obj, name, *args):
-    cache_fn = os.path.join(
-        os.path.expanduser('~'), '.%s_%s_%s' % (__name__, obj.kubectl.context, name)
-    )
-    obj[name + '_cache'] = Cache(
-        cache_fn, obj.cache_seconds, obj.kubectl.call_json, 'get', name, *args
-    )
-
-
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
-
-
-def container_index_of(columns):
-    return columns.index('containers') if 'containers' in columns else None
-
-
-def each_match(obj, columns=['namespace', 'name', 'containers']):
-    container_index = container_index_of(columns)
-    cols = ['node', 'name', 'containers'] + columns
-    # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
-    count = 0
-    for pod in each_pod(obj, cols):
-        (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]  # FIXME: duplication
-        if not obj.node_re.search(node_name):
-            continue
-        if not obj.pod_re.search(pod_name):
-            continue
-        containers = []
-        for (name, ready, state, image) in container_info:
-            if not obj.container_re.search(name):
-                continue
-            containers.append(Container(obj, name, ready, state, image))
-        if not containers:
-            continue
-        if container_index:
-            col_values[container_index] = containers
-        count += 1
-        if obj.limit and obj.limit < count:
-            _logger.debug('Prematurely stopping at match limit of ' + str(obj.limit))
-            break
-        yield(col_values)
-
-
-def each_pod(obj, columns):
-    query = obj.namespace_query + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
-    pods = obj.pods_cache.obj()
-    for pod in jmespath.search(query, pods):
-        yield pod
 
 
 def each_row(rows, flattener):
