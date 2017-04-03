@@ -117,7 +117,7 @@ class Kubey(object):
                     if self._config.namespace == self.ANY:
                         pod_name = namespace + '/' + pod_name
                     pods.append(pod_name)
-                if len(pods) < 1:
+                if not pods:
                     continue  # no matching pods, skip this node
                 col_values.insert(pod_index, pods)
             yield(col_values)
