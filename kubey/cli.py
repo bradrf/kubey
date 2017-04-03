@@ -303,12 +303,16 @@ def health(obj, columns, flat):
 
 ######################################################################
 
+
 _percent_re = re.compile(r'^(\d+)%$')
+
+
 def mark_percentages(info, limit):
     for i, val in enumerate(info):
         m = _percent_re.match(val)
         if m and int(m.group(1)) >= limit:
             info[i] = click.style(val, bold=True, fg='red')
+
 
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
