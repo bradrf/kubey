@@ -282,6 +282,8 @@ def health(obj, columns, flat):
             if obj.no_headers:
                 headers = []
             continue
+        if obj.highlight:
+            mark_percentages(info, 80)
         node_name = info[0]
         if node_name in pods_selected:
             pod_names = pods_selected[node_name]
@@ -300,6 +302,13 @@ def health(obj, columns, flat):
 
 
 ######################################################################
+
+_percent_re = re.compile(r'^(\d+)%$')
+def mark_percentages(info, limit):
+    for i, val in enumerate(info):
+        m = _percent_re.match(val)
+        if m and int(m.group(1)) >= limit:
+            info[i] = click.style(val, bold=True, fg='red')
 
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
