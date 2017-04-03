@@ -108,16 +108,18 @@ class Kubey(object):
                     NodeCondition(self._config, *c) for c in condition_info
                 ]
             if pod_index:
-                if self._config.namespace == self.ANY:
-                    col_values.insert(pod_index, [
-                        (n + '/' + p) for n, p in self.each_pod('namespace', 'name')
-                        if self._pod_re.search(p)
-                    ])
-                else:
-                    col_values.insert(pod_index, [
-                        p for n, p in self.each_pod('namespace', 'name')
-                        if self._namespace_re.search(n) and self._pod_re.search(p)
-                    ])
+                pods = []
+                for namespace, node_name, pod_name in self.each_pod('namespace', 'node', 'name'):
+                    if not (node_name == name and
+                            self._namespace_re.search(namespace) and
+                            self._pod_re.search(pod_name)):
+                        continue
+                    if self._config.namespace == self.ANY:
+                        pod_name = namespace + '/' + pod_name
+                    pods.append(pod_name)
+                if len(pods) < 1:
+                    continue  # no matching pods, skip this node
+                col_values.insert(pod_index, pods)
             yield(col_values)
 
     # Private:
