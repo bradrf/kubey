@@ -158,7 +158,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             arguments = ('TERM=xterm', command) + arguments
             command = 'env'
 
-    remote_args = [command] + quoted(arguments)
+    remote_args = [command] + [quote(a) for a in arguments]
     # TODO: consider using "sh -c exec ..." only if command has no semicolon?
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
@@ -348,11 +348,7 @@ def each_row(rows, flattener):
             exploded = [''] * len(row)  # reset next row with empty columns
 
 
-def quoted(args):
-    # not using shlex/pipes.quote because we want glob expansion for remote calls
-    return [quote(a) for a in args]
-
-
+# not using shlex/pipes.quote because we want glob expansion for remote calls
 def quote(arg):
     if ' ' not in arg or _skip_re.match(arg):
         return arg
