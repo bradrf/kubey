@@ -350,11 +350,11 @@ def each_row(rows, flattener):
 
 def quoted(args):
     # not using shlex/pipes.quote because we want glob expansion for remote calls
-    return [quote(a) for a in args if ' ' in a]
+    return [quote(a) for a in args]
 
 
 def quote(arg):
-    if _skip_re.match(arg):
+    if ' ' not in arg or _skip_re.match(arg):
         return arg
     if "'" in arg:
         if '"' in arg:
