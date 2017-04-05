@@ -2,6 +2,14 @@
 History
 =======
 
+0.3.0 (2017-04-04)
+------------------
+
+* Fix health report
+* Highlight "warning level" percentages in health
+* Fix quoting to allow remote glob expansion
+
+
 0.2.0 (2017-04-02)
 ------------------
 
