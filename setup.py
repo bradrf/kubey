@@ -22,7 +22,7 @@ test_requirements = [
 
 setup(
     name='kubey',
-    version='0.2.0',
+    version='version='0.2.0'',
     description="Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous commands.",
     long_description=readme + '\n\n' + history,
     author="Brad Robel-Forrest",
