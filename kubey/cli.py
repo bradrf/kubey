@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 import re
-import pipes
 import click
 
 from tabulate import tabulate, tabulate_formats
@@ -159,8 +158,8 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             arguments = ('TERM=xterm', command) + arguments
             command = 'env'
 
+    remote_args = [command] + [quote(a) for a in arguments]
     # TODO: consider using "sh -c exec ..." only if command has no semicolon?
-    remote_args = [command] + [pipes.quote(a) for a in arguments]
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
     # TODO: add option to include 'node' name in prefix
@@ -282,6 +281,8 @@ def health(obj, columns, flat):
             if obj.no_headers:
                 headers = []
             continue
+        if obj.highlight:
+            mark_percentages(info, 80)
         node_name = info[0]
         if node_name in pods_selected:
             pod_names = pods_selected[node_name]
@@ -300,6 +301,24 @@ def health(obj, columns, flat):
 
 
 ######################################################################
+
+
+_percent_re = re.compile(r'^(\d+)%$')
+_skip_re = re.compile(r'^[\'"].*[\'"]$')
+
+
+def mark_percentages(info, limit):
+    soft_limit = limit * (limit / 100.0)
+    for i, val in enumerate(info):
+        m = _percent_re.match(val)
+        if not m:
+            continue
+        v = int(m.group(1))
+        if v >= limit:
+            info[i] = click.style(val, bold=True, fg='red')
+        elif v >= soft_limit:
+            info[i] = click.style(val, fg='yellow')
+
 
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
@@ -327,6 +346,17 @@ def each_row(rows, flattener):
                 break
             yield exploded
             exploded = [''] * len(row)  # reset next row with empty columns
+
+
+# not using shlex/pipes.quote because we want glob expansion for remote calls
+def quote(arg):
+    if ' ' not in arg or _skip_re.match(arg):
+        return arg
+    if "'" in arg:
+        if '"' in arg:
+            raise ValueError('Unable to quote: ' + arg)
+        return '"' + arg + '"'
+    return "'" + arg + "'"
 
 
 def is_iterable(item):
