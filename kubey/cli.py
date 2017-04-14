@@ -147,23 +147,11 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
     kubectl = obj.kubey.kubectl
-    kexec_args = ['exec', '-ti']
-    # always use TTY/interactive to ensure remote command is terminated on interrupt
-    if prefix:
-        kexec = kubectl.call_prefix
-        if interactive:
-            click.get_current_context().fail('Interactive and prefix do not operate together')
-    elif async:
-        kexec = kubectl.call_async
-        if interactive:
-            click.get_current_context().fail('Interactive and async do not operate together')
-    else:
-        kexec = kubectl.call
-        if interactive:
-            # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
-            #        for now, this allows for "fancy" terminal apps run in interactive mode
-            arguments = ('TERM=xterm', command) + arguments
-            command = 'env'
+    if interactive:
+        # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
+        #        for now, this allows for "fancy" terminal apps run in interactive mode
+        arguments = ('TERM=xterm', command) + arguments
+        command = 'env'
 
     remote_args = [command] + [quote(a) for a in arguments]
     # TODO: consider using "sh -c exec ..." only if command has no semicolon?
@@ -176,14 +164,20 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = ['[%s/%s] ' % (pod_name, container.name)] if prefix else []
-            args += list(kexec_args)  # copy
-            args += ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
-            kexec(*args)
+            # always use TTY/interactive to ensure remote command is terminated on interrupt
+            args = [
+                'exec', '-ti', '-n', namespace, '-c', container.name, pod_name, '--'
+            ] + remote_cmd
+            if prefix:
+                args.insert(0, '[%s/%s] ' % (pod_name, container.name))
+                kubectl.call_prefix(*args)
+            else:
+                kubectl.call_async(*args)
+            if not async:
+                kubectl.wait()
 
     if async:
         kubectl.wait()
-
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
 
