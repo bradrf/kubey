@@ -25,8 +25,8 @@ class KubeCtl(object):
         return self._context
 
     def call(self, cmd, *args):
-        cl = self._commandline(cmd, *args)
-        return self._check(cl, subprocess.call(cl))
+        self.call_async(cmd, *args)
+        return self.wait()
 
     def call_capture(self, cmd, *args):
         cl = self._commandline(cmd, *args)
@@ -37,14 +37,16 @@ class KubeCtl(object):
 
     def call_async(self, cmd, *args):
         cl = self._commandline(cmd, *args)
-        self._processes.append((cl, subprocess.Popen(cl)))
+        proc = subprocess.Popen(cl)
+        self._processes.append((cl, proc))
         return 0
 
-    def call_prefix(self, cmd, prefix, *args):
+    def call_prefix(self, prefix, cmd, *args):
         out_handler = BackgroundPopen.prefix_handler(prefix, sys.stdout)
         err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
         cl = self._commandline(cmd, *args)
-        self._processes.append((cl, BackgroundPopen(out_handler, err_handler, cl)))
+        proc = BackgroundPopen(out_handler, err_handler, cl)
+        self._processes.append((cl, proc))
         return 0
 
     def wait(self):
@@ -53,6 +55,16 @@ class KubeCtl(object):
         for cl, proc in procs:
             self._check(cl, proc.wait())
         return self.final_rc
+
+    def kill(self, signal=None):
+        procs = self._processes
+        self._process = []
+        for cl, proc in procs:
+            if signal:
+                proc.send_signal(signal)
+            else:
+                proc.kill()
+            proc.wait()
 
     def _commandline(self, command, *args):
         commandline = [self._kubectl]
@@ -65,6 +77,6 @@ class KubeCtl(object):
 
     def _check(self, cl, rc):
         if rc != 0:
-            self._final_rc = rc
+            self.final_rc = rc
             _logger.warn('%s => exit status: %d' % (' '.join(cl), rc))
         return rc

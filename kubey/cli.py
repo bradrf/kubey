@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import re
+import signal
 import click
 
 from tabulate import tabulate, tabulate_formats
@@ -74,6 +75,12 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
     )
     ctx.obj.kubey = Kubey(ctx.obj)
 
+    def handle_interrupt(signal, _frame):
+        ctx.obj.kubey.kubectl.kill(signal)
+        ctx.exit(22)
+    signal.signal(signal.SIGINT, handle_interrupt)
+    signal.signal(signal.SIGTERM, handle_interrupt)
+
     if not ctx.invoked_subcommand:
         ctx.invoke(list_pods)
 
@@ -140,7 +147,8 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
     kubectl = obj.kubey.kubectl
-    kexec_args = ['exec']
+    kexec_args = ['exec', '-ti']
+    # always use TTY/interactive to ensure remote command is terminated on interrupt
     if prefix:
         kexec = kubectl.call_prefix
         if interactive:
@@ -152,7 +160,6 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     else:
         kexec = kubectl.call
         if interactive:
-            kexec_args += ['-ti']
             # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
             #        for now, this allows for "fancy" terminal apps run in interactive mode
             arguments = ('TERM=xterm', command) + arguments
@@ -169,9 +176,8 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = list(kexec_args)  # copy
-            if prefix:
-                args.append('[%s/%s] ' % (pod_name, container.name))
+            args = ['[%s/%s] ' % (pod_name, container.name)] if prefix else []
+            args += list(kexec_args)  # copy
             args += ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
             kexec(*args)
 
@@ -226,7 +232,7 @@ def tail(obj, follow, prefix, number):
             args = ['-n', namespace, '-c', container.name] + log_args + [pod_name]
             if prefix:
                 prefix = '[%s:%s] ' % (pod_name, container.name)
-                kubectl.call_prefix('logs', prefix, *args)
+                kubectl.call_prefix(prefix, 'logs', *args)
             else:
                 kubectl.call_async('logs', *args)
 
