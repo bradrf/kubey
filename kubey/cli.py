@@ -258,21 +258,23 @@ def health(obj, columns, flat):
         conditions[node_name] = conds
         pods_selected[node_name] = pods
 
-    headers = None
-    selected_columns = None
-    rows = []
-
-    # TODO: sort this output (seems to randomly change when running over again)
     # TODO: color pods not in ready state! (i.e. what you'd see as red in list)
     # TODO: restriction of pods still shows everything on node:
     #       kubey collab-production 'back|sqs' . health
 
     kubectl = obj.kubey.kubectl
+
+    top_node_rows = []
+    kubectl.call_table_rows(lambda i, row: top_node_rows.append(row), 'top', 'node')
+    kubectl.wait()
+
+    headers = None
+    selected_columns = None
+    rows = []
     extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
-    for line in kubectl.call_capture('top', 'node').splitlines():
-        info = line.split()
+    for row in top_node_rows:
         if headers is None:
-            headers = info + extra_columns
+            headers = row + extra_columns
             if columns:
                 selected_columns = []
                 for c in columns:
@@ -282,17 +284,17 @@ def health(obj, columns, flat):
                 headers = []
             continue
         if obj.highlight:
-            mark_percentages(info, 80)
-        node_name = info[0]
+            mark_percentages(row, 80)
+        node_name = row[0]
         if node_name in pods_selected:
             pod_names = pods_selected[node_name]
             if obj.wide:
-                info.extend([conditions[node_name], pod_names, addresses[node_name]])
+                row.extend([conditions[node_name], pod_names, addresses[node_name]])
             else:
-                info.append(conditions[node_name])
+                row.append(conditions[node_name])
             if selected_columns:
-                info = [i for i in info if info.index(i) in selected_columns]
-            rows.append(info)
+                row = [i for i in row if row.index(i) in selected_columns]
+            rows.append(row)
 
     rows = sorted(rows)  # FIXME: should sort as we go
     if selected_columns:

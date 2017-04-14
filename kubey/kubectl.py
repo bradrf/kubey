@@ -4,6 +4,7 @@ import subprocess
 import json
 
 from .background_popen import BackgroundPopen
+from .table_row_popen import TableRowPopen
 
 
 _logger = logging.getLogger(__name__)
@@ -46,6 +47,12 @@ class KubeCtl(object):
         err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
         cl = self._commandline(cmd, *args)
         proc = BackgroundPopen(out_handler, err_handler, cl)
+        self._processes.append((cl, proc))
+        return 0
+
+    def call_table_rows(self, row_handler, cmd, *args):
+        cl = self._commandline(cmd, *args)
+        proc = TableRowPopen(row_handler, cl)
         self._processes.append((cl, proc))
         return 0
 
