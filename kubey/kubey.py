@@ -57,7 +57,7 @@ class Kubey(object):
             # FIXME: duplication
             (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]
             if not node_name:
-                node_name = ''
+                node_name = '.'
             if not self._node_re.search(node_name):
                 continue
             if not self._pod_re.search(pod_name):
