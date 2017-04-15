@@ -2,6 +2,13 @@
 History
 =======
 
+0.4.0 (2017-04-14)
+------------------
+
+* Fix interactive
+* Collect tabular output for each_pod
+
+
 0.3.0 (2017-04-04)
 ------------------
 
