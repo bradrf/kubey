@@ -190,12 +190,31 @@ def each_pod(obj, command, arguments):
     '''Invoke a command for each pod matched.'''
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
+    collector = RowCollector()
     for (namespace, pod_name) in obj.kubey.each(['namespace', 'name']):
-        title = '-- %s/%s ' % (namespace, pod_name)
-        title += '-' * (width - len(title))
-        click.echo(title)
         args = ('-n', namespace) + arguments + (pod_name,)
-        kubectl.call(command, *args)
+        kubectl.call_table_rows(collector.handler_for(namespace), command, *args)
+    kubectl.wait()
+    if collector.rows:
+        click.echo(tabulate(sorted(collector.rows), headers=collector.headers,
+                            tablefmt=obj.table_format))
+    if kubectl.final_rc != 0:
+        click.get_current_context().exit(kubectl.final_rc)
+
+
+class RowCollector(object):
+    def __init__(self):
+        self.headers = None
+        self.rows = []
+
+    def handler_for(self, namespace):
+        def add(i, row):
+            if i == 1:
+                if not self.headers:
+                    self.headers = ['NAMESPACE'] + row
+                return
+            self.rows.append([namespace] + row)
+        return add
 
 
 @cli.command()
