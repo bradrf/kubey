@@ -147,23 +147,13 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
     kubectl = obj.kubey.kubectl
-    kexec_args = ['exec', '-ti']
-    # always use TTY/interactive to ensure remote command is terminated on interrupt
-    if prefix:
-        kexec = kubectl.call_prefix
-        if interactive:
-            click.get_current_context().fail('Interactive and prefix do not operate together')
-    elif async:
-        kexec = kubectl.call_async
-        if interactive:
-            click.get_current_context().fail('Interactive and async do not operate together')
-    else:
-        kexec = kubectl.call
-        if interactive:
-            # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
-            #        for now, this allows for "fancy" terminal apps run in interactive mode
-            arguments = ('TERM=xterm', command) + arguments
-            command = 'env'
+    kexec_args = ['exec']
+    if interactive:
+        kexec_args.append('-ti')
+        # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
+        #        for now, this allows for "fancy" terminal apps run in interactive mode
+        arguments = ('TERM=xterm', command) + arguments
+        command = 'env'
 
     remote_args = [command] + [quote(a) for a in arguments]
     # TODO: consider using "sh -c exec ..." only if command has no semicolon?
@@ -176,14 +166,17 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = ['[%s/%s] ' % (pod_name, container.name)] if prefix else []
-            args += list(kexec_args)  # copy
-            args += ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
-            kexec(*args)
+            args = kexec_args + ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
+            if prefix:
+                args.insert(0, '[%s/%s] ' % (pod_name, container.name))
+                kubectl.call_prefix(*args)
+            else:
+                kubectl.call_async(*args)
+            if not async:
+                kubectl.wait()
 
     if async:
         kubectl.wait()
-
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
 
@@ -196,12 +189,31 @@ def each_pod(obj, command, arguments):
     '''Invoke a command for each pod matched.'''
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
+    collector = RowCollector()
     for (namespace, pod_name) in obj.kubey.each(['namespace', 'name']):
-        title = '-- %s/%s ' % (namespace, pod_name)
-        title += '-' * (width - len(title))
-        click.echo(title)
         args = ('-n', namespace) + arguments + (pod_name,)
-        kubectl.call(command, *args)
+        kubectl.call_table_rows(collector.handler_for(namespace), command, *args)
+    kubectl.wait()
+    if collector.rows:
+        click.echo(tabulate(sorted(collector.rows), headers=collector.headers,
+                            tablefmt=obj.table_format))
+    if kubectl.final_rc != 0:
+        click.get_current_context().exit(kubectl.final_rc)
+
+
+class RowCollector(object):
+    def __init__(self):
+        self.headers = None
+        self.rows = []
+
+    def handler_for(self, namespace):
+        def add(i, row):
+            if i == 1:
+                if not self.headers:
+                    self.headers = ['NAMESPACE'] + row
+                return
+            self.rows.append([namespace] + row)
+        return add
 
 
 @cli.command()
@@ -264,21 +276,23 @@ def health(obj, columns, flat):
         conditions[node_name] = conds
         pods_selected[node_name] = pods
 
-    headers = None
-    selected_columns = None
-    rows = []
-
-    # TODO: sort this output (seems to randomly change when running over again)
     # TODO: color pods not in ready state! (i.e. what you'd see as red in list)
     # TODO: restriction of pods still shows everything on node:
     #       kubey collab-production 'back|sqs' . health
 
     kubectl = obj.kubey.kubectl
+
+    top_node_rows = []
+    kubectl.call_table_rows(lambda i, row: top_node_rows.append(row), 'top', 'node')
+    kubectl.wait()
+
+    headers = None
+    selected_columns = None
+    rows = []
     extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
-    for line in kubectl.call_capture('top', 'node').splitlines():
-        info = line.split()
+    for row in top_node_rows:
         if headers is None:
-            headers = info + extra_columns
+            headers = row + extra_columns
             if columns:
                 selected_columns = []
                 for c in columns:
@@ -288,17 +302,17 @@ def health(obj, columns, flat):
                 headers = []
             continue
         if obj.highlight:
-            mark_percentages(info, 80)
-        node_name = info[0]
+            mark_percentages(row, 80)
+        node_name = row[0]
         if node_name in pods_selected:
             pod_names = pods_selected[node_name]
             if obj.wide:
-                info.extend([conditions[node_name], pod_names, addresses[node_name]])
+                row.extend([conditions[node_name], pod_names, addresses[node_name]])
             else:
-                info.append(conditions[node_name])
+                row.append(conditions[node_name])
             if selected_columns:
-                info = [i for i in info if info.index(i) in selected_columns]
-            rows.append(info)
+                row = [i for i in row if row.index(i) in selected_columns]
+            rows.append(row)
 
     rows = sorted(rows)  # FIXME: should sort as we go
     if selected_columns:

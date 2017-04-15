@@ -12,12 +12,21 @@ class BackgroundPopen(subprocess.Popen):
         kwargs['stdout'] = subprocess.PIPE
         kwargs['stderr'] = subprocess.PIPE
         super(self.__class__, self).__init__(*args, **kwargs)
-        Thread(target=self._proxy_lines, args=[self.stdout, out_handler]).start()
-        Thread(target=self._proxy_lines, args=[self.stderr, err_handler]).start()
+        self._stdout_thread = Thread(target=self._proxy_lines, args=[self.stdout, out_handler])
+        self._stderr_thread = Thread(target=self._proxy_lines, args=[self.stderr, err_handler])
+        self._stdout_thread.start()
+        self._stderr_thread.start()
+
+    def wait(self):
+        result = super(self.__class__, self).wait()
+        self._stdout_thread.join()
+        self._stderr_thread.join()
+        return result
 
     def _proxy_lines(self, io, handler):
         with io:
-            while self.poll() is None:
+            while True:
                 line = io.readline()
-                if line != '':
-                    handler(line)
+                if not line:
+                    break
+                handler(line)
