@@ -56,17 +56,18 @@ class Kubey(object):
         for pod in self.each_pod(cols):
             # FIXME: duplication
             (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]
+            if not node_name:
+                node_name = ''
             if not self._node_re.search(node_name):
                 continue
             if not self._pod_re.search(pod_name):
                 continue
             containers = []
-            for (name, ready, state, image) in container_info:
-                if not self._container_re.search(name):
-                    continue
-                containers.append(Container(self._config, name, ready, state, image))
-            if not containers:
-                continue
+            if container_info:
+                for (name, ready, state, image) in container_info:
+                    if not self._container_re.search(name):
+                        continue
+                    containers.append(Container(self._config, name, ready, state, image))
             if container_index:
                 col_values[container_index] = containers
             count += 1
