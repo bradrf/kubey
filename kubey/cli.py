@@ -147,7 +147,9 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
     kubectl = obj.kubey.kubectl
+    kexec_args = ['exec']
     if interactive:
+        kexec_args.append('-ti')
         # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
         #        for now, this allows for "fancy" terminal apps run in interactive mode
         arguments = ('TERM=xterm', command) + arguments
@@ -164,10 +166,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            # always use TTY/interactive to ensure remote command is terminated on interrupt
-            args = [
-                'exec', '-ti', '-n', namespace, '-c', container.name, pod_name, '--'
-            ] + remote_cmd
+            args = kexec_args + ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
             if prefix:
                 args.insert(0, '[%s/%s] ' % (pod_name, container.name))
                 kubectl.call_prefix(*args)
