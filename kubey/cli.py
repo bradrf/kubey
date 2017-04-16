@@ -61,8 +61,18 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         width, height = click.get_terminal_size()
         wide = width > 160
 
+    highlight = sys.stdout.isatty()
+    def highlight_with(color):
+        if not highlight:
+            return str
+        def colorizer(obj):
+            return click.style(str(obj), bold=True, fg=color)
+        return colorizer
+
     ctx.obj = OpenStruct(
-        highlight=sys.stdout.isatty(),
+        highlight_ok=highlight_with('green'),
+        highlight_warn=highlight_with('yellow'),
+        highlight_error=highlight_with('red'),
         cache_path=os.path.expanduser('~'),
         cache_seconds=cache_seconds,
         context=context,
@@ -96,7 +106,7 @@ def list_pods(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(obj.kubey.each(columns), flattener)
+    rows = each_row(obj.kubey.each_pod(), flattener, columns)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
@@ -344,9 +354,8 @@ def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
 
 
-def each_row(rows, flattener):
-    for row in rows:
-        row = list(row)  # copy row to avoid stomping on original items
+def each_row(objs, flattener, columns):
+    for row in table_of(objs, columns):
         if flattener:
             for i, item in enumerate(row):
                 if is_iterable(item):
@@ -366,6 +375,10 @@ def each_row(rows, flattener):
                 break
             yield exploded
             exploded = [''] * len(row)  # reset next row with empty columns
+
+
+def table_of(objs, columns):
+    return ([getattr(o, c) for c in columns] for o in objs)
 
 
 # not using shlex/pipes.quote because we want glob expansion for remote calls

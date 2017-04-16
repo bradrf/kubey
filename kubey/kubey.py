@@ -5,6 +5,7 @@ import jmespath
 
 from .kubectl import KubeCtl
 from .cache import Cache
+from .pod import Pod
 from .container import Container
 from .node_condition import NodeCondition
 
@@ -21,9 +22,9 @@ class Kubey(object):
     POD_COLUMN_MAP = {
         'name': 'metadata.name',
         'namespace': 'metadata.namespace',
-        'node': 'spec.nodeName',
-        'node-ip': 'status.hostIP',
-        'status': 'status.phase',
+        'node_name': 'spec.nodeName',
+        'host_ip': 'status.hostIP',
+        'phase': 'status.phase',
         # 'conditions': 'status.conditions[*].[type,status,message]',
         'containers': 'status.containerStatuses[*].[name,ready,state,image]',
     }
@@ -39,8 +40,8 @@ class Kubey(object):
         self.kubectl = KubeCtl(config.context)
         self._split_match()
         self._namespaces = self._cache('namespaces')
-        self._nodes = self._cache('nodes')
-        self._pods = self._cache('pods', '--all-namespaces')
+        self._nodes_cache = self._cache('nodes')
+        self._pods_cache = self._cache('pods', '--all-namespaces')
         self._set_namespace()
 
     def __repr__(self):
@@ -48,41 +49,18 @@ class Kubey(object):
             self.kubectl.context, self._config.namespace,
             self._node_re.pattern, self._pod_re.pattern, self._container_re.pattern)
 
-    def each(self, columns=['namespace', 'name', 'containers']):
-        container_index = self._index_of('containers', columns)
-        cols = ['node', 'name', 'containers'] + columns
-        # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
-        count = 0
-        for pod in self.each_pod(cols):
-            # FIXME: duplication
-            (node_name, pod_name, container_info), col_values = pod[:3], pod[3:]
-            if not node_name:
-                node_name = '.'
-            if not self._node_re.search(node_name):
-                continue
-            if not self._pod_re.search(pod_name):
-                continue
-            containers = []
-            if container_info:
-                for (name, ready, state, image) in container_info:
-                    if not self._container_re.search(name):
-                        continue
-                    containers.append(Container(self._config, name, ready, state, image))
-            if container_index:
-                col_values[container_index] = containers
-            count += 1
-            if self._config.maximum and self._config.maximum < count:
-                _logger.debug('Prematurely stopping at match maximum of ' +
-                              str(self._config.maximum))
-                break
-            yield(col_values)
-
-    def each_pod(self, *columns):
-        columns = self._list_from(columns)
-        query = self._namespace_query + '.[' + \
-            ','.join([self.POD_COLUMN_MAP[c] for c in columns]) + ']'
-        for pod in jmespath.search(query, self._pods.obj()):
-            yield pod
+    def each_pod(self):
+        for info in self._pods_cache.obj()['items']:
+            md = info['metadata']
+            if (self._namespace_re.search(md['namespace']) and
+                self._node_re.search(info['spec'].get('nodeName', '.')) and
+                self._pod_re.search(md['name'])):
+                pod = Pod(self._config, info, self._container_re.search)
+                yield(pod)
+                if self._config.maximum and self._config.maximum < len(self._pods):
+                    _logger.debug('Prematurely stopping at match maximum of ' +
+                                  str(self._config.maximum))
+                    break
 
     def each_node(self, *columns):
         columns = self._list_from(columns)
@@ -95,7 +73,7 @@ class Kubey(object):
         query = 'items[?kind==\'Node\'].[' + \
                 ','.join([self.NODE_COLUMN_MAP[c] for c in cols]) + ']'
         count = 0
-        for node in jmespath.search(query, self._nodes.obj()):
+        for node in jmespath.search(query, self._nodes_cache.obj()):
             (name, condition_info), col_values = node[:2], node[2:]  # FIXME: duplication
             if not self._node_re.search(name):
                 continue

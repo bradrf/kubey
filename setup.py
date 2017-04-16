@@ -12,8 +12,9 @@ with open('HISTORY.rst') as history_file:
 requirements = [
     'click>=6.7',
     'tabulate>=0.7.7',
-    'configstruct>=0.3.0',
+    'configstruct>=0.3.1',
     'jmespath>=0.9.2',
+    'python-dateutil>=2.6.0',
 ]
 
 test_requirements = [
