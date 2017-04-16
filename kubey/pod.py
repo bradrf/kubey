@@ -34,7 +34,11 @@ class Pod(object):
             if self._reason:
                 return '{0}:{1}:{2}'.format(
                     self._phase, self._config.highlight_error(self._reason), self._message)
-            return self._phase
+            if self._phase == 'Running':
+                return self._phase
+            highlighter = self._config.highlight_error if self._phase == 'Failed' else \
+                self._config.highlight_warn
+            return highlighter(self._phase)
 
     def __init__(self, config, info, container_selector):
         self._config = config
@@ -58,7 +62,7 @@ class Pod(object):
         return '<Pod: {0} namespace={1}>'.format(self.name, self.namespace)
 
     def _extract_conditions(self, info):
-        self.conditions = [Condition(self._config, o['type'], o['status']) for o in info]
+        self.conditions = [Condition(self._config, o) for o in info]
 
     def _extract_containers(self, info, status_info, selector):
         self.containers = []

@@ -357,7 +357,6 @@ def flatten(enumerable):
 
 def each_row(objs, flattener, columns):
     for row in table_of(objs, columns):
-        print row
         if flattener:
             for i, item in enumerate(row):
                 if is_iterable(item):
