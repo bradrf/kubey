@@ -1,4 +1,5 @@
 import re
+from copy import copy
 
 
 class Condition(object):
@@ -27,7 +28,8 @@ class Condition(object):
 
 class NodeCondition(Condition):
     def __init__(self, config, info):
+        info = copy(info)
         name = info['type']
-        simple_reason = re.sub(r'^kubelet (has|is) ', '', info.get('reason', ''))
+        info['reason'] = re.sub(r'^kubelet (has|is) ', '', info.get('reason', ''))
         # conditions other than "ready" use a positive to indicate "not satisfied (i.e. failed)"
-        super(self.__class__, self).__init__(config, name, simple_reason, name == 'Ready')
+        super(self.__class__, self).__init__(config, info, name == 'Ready')

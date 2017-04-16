@@ -8,8 +8,9 @@ import click
 from tabulate import tabulate, tabulate_formats
 from configstruct import OpenStruct
 
-from .pod import Pod
 from .kubey import Kubey
+from .node import Node
+from .pod import Pod
 
 
 _logger = None
@@ -197,14 +198,14 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
-def each_pod(obj, command, arguments):
+def ctl_each(obj, command, arguments):
     '''Invoke a command for each pod matched.'''
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
     collector = RowCollector()
-    for (namespace, pod_name) in obj.kubey.each(['namespace', 'name']):
-        args = ('-n', namespace) + arguments + (pod_name,)
-        kubectl.call_table_rows(collector.handler_for(namespace), command, *args)
+    for pod in obj.kubey.each_pod():
+        args = ('-n', pod.namespace) + arguments + (pod.name,)
+        kubectl.call_table_rows(collector.handler_for(pod.namespace), command, *args)
     kubectl.wait()
     if collector.rows:
         click.echo(tabulate(sorted(collector.rows), headers=collector.headers,
@@ -251,11 +252,11 @@ def tail(obj, follow, prefix, number):
     if follow:
         log_args.append('-f')
 
-    for (namespace, pod_name, containers) in obj.kubey.each():
-        for container in containers:
-            args = ['-n', namespace, '-c', container.name] + log_args + [pod_name]
+    for pod in obj.kubey.each_pod():
+        for container in pod.containers:
+            args = ['-n', pod.namespace, '-c', container.name] + log_args + [pod.name]
             if prefix:
-                prefix = '[%s:%s] ' % (pod_name, container.name)
+                prefix = '[%s:%s] ' % (pod.name, container.name)
                 kubectl.call_prefix(prefix, 'logs', *args)
             else:
                 kubectl.call_async('logs', *args)
@@ -266,11 +267,23 @@ def tail(obj, follow, prefix, number):
 
 
 @cli.command()
-@click.option('-c', '--columns', default='', help='specify specific columns to show')
+@click.option('-c', '--columns', default=','.join(Node.ATTRIBUTES),
+              help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
 def health(obj, columns, flat):
     '''Show health stats about matches.'''
+
+    # for node in obj.kubey.each_node():
+    #     print node, node.pods
+
+    columns = [c.strip() for c in columns.split(',')]
+    flattener = flatten if flat else None
+    headers = [] if obj.no_headers else columns
+    rows = each_row(obj.kubey.each_node(obj.maximum), flattener, columns)
+    click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
+
+    exit(17)
 
     # TODO: split this giant up!! use generators/enumerators!!
 

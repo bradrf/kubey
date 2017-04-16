@@ -59,7 +59,7 @@ class Pod(object):
                                  container_selector)
 
     def __repr__(self):
-        return '<Pod: {0} namespace={1}>'.format(self.name, self.namespace)
+        return '<Pod: {0} namespace={1} phase={2}>'.format(self.name, self.namespace, self.phase)
 
     def _extract_conditions(self, info):
         self.conditions = [Condition(self._config, o) for o in info]
