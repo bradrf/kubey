@@ -114,13 +114,13 @@ def list_pods(obj, columns, flat):
 @cli.command()
 @click.pass_obj
 def webui(obj):
-    '''List dashboard links for matching pods. Three or fewer will be opened automatically.'''
+    '''List dashboard links for matching pods (if only one matched, URL is opened in browser).'''
     kubectl = obj.kubey.kubectl
     info = click.unstyle(kubectl.call_capture('cluster-info'))
     dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
     urls = []
-    for (namespace, pod_name, containers) in obj.kubey.each():
-        pod_path = '/#/pod/%s/%s?namespace=%s' % (namespace, pod_name, namespace)
+    for pod in obj.kubey.each_pod():
+        pod_path = '/#/pod/{0}/{1}?namespace={0}'.format(pod.namespace, pod.name)
         urls.append(dash_endpoint + pod_path)
     if len(urls) == 1:
         url = urls[0]
@@ -171,15 +171,16 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
     # TODO: add option to include 'node' name in prefix
-    columns = ['namespace', 'node', 'name', 'containers']
-    for (namespace, node_name, pod_name, containers) in obj.kubey.each(columns):
-        for container in containers:
+    for pod in obj.kubey.each_pod():
+        for container in pod.containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = kexec_args + ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
+            args = kexec_args + \
+                   ['-n', pod.namespace, '-c', container.name, pod.name, '--'] + \
+                   remote_cmd
             if prefix:
-                args.insert(0, '[%s/%s] ' % (pod_name, container.name))
+                args.insert(0, '[%s/%s] ' % (pod.name, container.name))
                 kubectl.call_prefix(*args)
             else:
                 kubectl.call_async(*args)

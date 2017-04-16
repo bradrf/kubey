@@ -50,6 +50,7 @@ class Kubey(object):
             self._node_re.pattern, self._pod_re.pattern, self._container_re.pattern)
 
     def each_pod(self):
+        matched = 0
         for info in self._pods_cache.obj()['items']:
             md = info['metadata']
             if (self._namespace_re.search(md['namespace']) and
@@ -57,7 +58,8 @@ class Kubey(object):
                 self._pod_re.search(md['name'])):
                 pod = Pod(self._config, info, self._container_re.search)
                 yield(pod)
-                if self._config.maximum and self._config.maximum < len(self._pods):
+                matched += 1
+                if self._config.maximum and self._config.maximum <= matched:
                     _logger.debug('Prematurely stopping at match maximum of ' +
                                   str(self._config.maximum))
                     break
