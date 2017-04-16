@@ -8,6 +8,7 @@ import click
 from tabulate import tabulate, tabulate_formats
 from configstruct import OpenStruct
 
+from .pod import Pod
 from .kubey import Kubey
 
 
@@ -96,7 +97,7 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
 
 @cli.command(name='list')
-@click.option('-c', '--columns', default=','.join(Kubey.POD_COLUMN_MAP.keys()), show_default=True,
+@click.option('-c', '--columns', default=','.join(Pod.ATTRIBUTES), show_default=True,
               help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
@@ -356,6 +357,7 @@ def flatten(enumerable):
 
 def each_row(objs, flattener, columns):
     for row in table_of(objs, columns):
+        print row
         if flattener:
             for i, item in enumerate(row):
                 if is_iterable(item):
@@ -364,6 +366,9 @@ def each_row(objs, flattener, columns):
             continue
         # extract out a _copy_ of iterable items and populate into "exploded" rows
         iterables = {i: list(item) for i, item in enumerate(row) if is_iterable(item)}
+        if not iterables:
+            yield row
+            continue
         exploded = row
         while True:
             exploding = False
