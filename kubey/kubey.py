@@ -48,16 +48,17 @@ class Kubey(object):
             if self._exceeded_max(len(self._pods), limit):
                 break
 
-    def each_node(self, limit=None):
+    def each_node(self, limit=None, include_top_info=False):
         if self._nodes:
             for node in self._nodes:
                 yield node
             return
+        top_info = self._get_top_node_info() if include_top_info else {}
         self._nodes = []
         for info in self._nodes_cache.obj()['items']:
             if not self._node_matches(info):
                 continue
-            node = Node(self._config, info, self.each_pod())
+            node = Node(self._config, info, self.each_pod(), top_info)
             if not self._any_match and len(node.pods) == 0:
                 continue  # no matching pods found
             self._nodes.append(node)
@@ -66,6 +67,13 @@ class Kubey(object):
                 break
 
     # Private
+
+    @staticmethod
+    def _exceeded_max(count, limit):
+        if limit and limit <= count:
+            _logger.debug('Prematurely stopping at match maximum of {0}'.format(limit))
+            return True
+        return False
 
     def _set_namespace(self):
         ns = '' if self._config.namespace == self.ANY else self._config.namespace
@@ -110,9 +118,14 @@ class Kubey(object):
     def _node_matches(self, info):
         return self._node_re.search(info['metadata']['name'])
 
-    @staticmethod
-    def _exceeded_max(count, limit):
-        if limit and limit <= count:
-            _logger.debug('Prematurely stopping at match maximum of {0}'.format(limit))
-            return True
-        return False
+    def _get_top_node_info(self):
+        info = {}
+
+        def add_info(i, row):
+            if i == 1:
+                return
+            info[row[0]] = row[1:]
+
+        self.kubectl.call_table_rows(add_info, 'top', 'node')
+        self.kubectl.wait()
+        return info

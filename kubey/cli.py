@@ -108,7 +108,7 @@ def list_pods(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(obj.kubey.each_pod(), flattener, columns)
+    rows = each_row(obj.kubey.each_pod(obj.maximum), flattener, columns)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
@@ -120,7 +120,7 @@ def webui(obj):
     info = click.unstyle(kubectl.call_capture('cluster-info'))
     dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
     urls = []
-    for pod in obj.kubey.each_pod():
+    for pod in obj.kubey.each_pod(obj.maximum):
         pod_path = '/#/pod/{0}/{1}?namespace={0}'.format(pod.namespace, pod.name)
         urls.append(dash_endpoint + pod_path)
     if len(urls) == 1:
@@ -172,7 +172,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
     # TODO: add option to include 'node' name in prefix
-    for pod in obj.kubey.each_pod():
+    for pod in obj.kubey.each_pod(obj.maximum):
         for container in pod.containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
@@ -203,7 +203,7 @@ def ctl_each(obj, command, arguments):
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
     collector = RowCollector()
-    for pod in obj.kubey.each_pod():
+    for pod in obj.kubey.each_pod(obj.maximum):
         args = ('-n', pod.namespace) + arguments + (pod.name,)
         kubectl.call_table_rows(collector.handler_for(pod.namespace), command, *args)
     kubectl.wait()
@@ -252,7 +252,7 @@ def tail(obj, follow, prefix, number):
     if follow:
         log_args.append('-f')
 
-    for pod in obj.kubey.each_pod():
+    for pod in obj.kubey.each_pod(obj.maximum):
         for container in pod.containers:
             args = ['-n', pod.namespace, '-c', container.name] + log_args + [pod.name]
             if prefix:
@@ -280,69 +280,8 @@ def health(obj, columns, flat):
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(obj.kubey.each_node(obj.maximum), flattener, columns)
+    rows = each_row(obj.kubey.each_node(obj.maximum, True), flattener, columns)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
-
-    exit(17)
-
-    # TODO: split this giant up!! use generators/enumerators!!
-
-    columns = [c.strip() for c in columns.split(',')]
-    flattener = flatten if flat else None
-
-    addresses = {}
-    conditions = {}
-    pods_selected = {}
-
-    for (node_name, addrs, conds, pods) in \
-            obj.kubey.each_node('name', 'addresses', 'conditions', 'pods'):
-        addrs = [a for a in set(addrs) if a not in node_name]
-        addresses[node_name] = sorted(addrs, reverse=True)
-        conditions[node_name] = conds
-        pods_selected[node_name] = pods
-
-    # TODO: color pods not in ready state! (i.e. what you'd see as red in list)
-    # TODO: restriction of pods still shows everything on node:
-    #       kubey collab-production 'back|sqs' . health
-
-    kubectl = obj.kubey.kubectl
-
-    top_node_rows = []
-    kubectl.call_table_rows(lambda i, row: top_node_rows.append(row), 'top', 'node')
-    kubectl.wait()
-
-    headers = None
-    selected_columns = None
-    rows = []
-    extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
-    for row in top_node_rows:
-        if headers is None:
-            headers = row + extra_columns
-            if columns:
-                selected_columns = []
-                for c in columns:
-                    matches = [i for (i, h) in enumerate(headers) if c in h.lower()]
-                    selected_columns.extend(matches)
-            if obj.no_headers:
-                headers = []
-            continue
-        if obj.highlight:
-            mark_percentages(row, 80)
-        node_name = row[0]
-        if node_name in pods_selected:
-            pod_names = pods_selected[node_name]
-            if obj.wide:
-                row.extend([conditions[node_name], pod_names, addresses[node_name]])
-            else:
-                row.append(conditions[node_name])
-            if selected_columns:
-                row = [i for i in row if row.index(i) in selected_columns]
-            rows.append(row)
-
-    rows = sorted(rows)  # FIXME: should sort as we go
-    if selected_columns:
-        headers = [h for h in headers if headers.index(h) in selected_columns]
-    click.echo(tabulate(each_row(rows, flattener), headers=headers, tablefmt=obj.table_format))
 
 
 ######################################################################
