@@ -29,12 +29,18 @@ class Pod(object):
             else:
                 self._phase = info
                 self._reason = None
+                self._message = None
+            self.running = self._phase == 'Running'
 
         def __repr__(self):
+            return '<Phase: {0} reason={1} message={2}>'.format(
+                self._phase, self._reason, self._message)
+
+        def __str__(self):
             if self._reason:
                 return '{0}:{1}:{2}'.format(
                     self._phase, self._config.highlight_error(self._reason), self._message)
-            if self._phase == 'Running':
+            if self.running:
                 return self._phase
             highlighter = self._config.highlight_error if self._phase == 'Failed' else \
                 self._config.highlight_warn
@@ -60,6 +66,12 @@ class Pod(object):
 
     def __repr__(self):
         return '<Pod: {0} namespace={1} phase={2}>'.format(self.name, self.namespace, self.phase)
+
+    def __str__(self, namespaced=False):
+        pstr = '' if self.phase.running else ':' + str(self.phase)
+        if namespaced:
+            return '{0}/{1}{2}'.format(self.namespace, self.name, pstr)
+        return '{0}{1}'.format(self.name, pstr)
 
     def _extract_conditions(self, info):
         self.conditions = [Condition(self._config, o) for o in info]

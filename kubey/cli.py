@@ -71,10 +71,15 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
             return click.style(str(obj), bold=True, fg=color)
         return colorizer
 
+    hard_percent_limit = 80     # TODO: consider making cfg'abl
+    soft_percent_limit = hard_percent_limit * (hard_percent_limit / 100.0)
+
     ctx.obj = OpenStruct(
         highlight_ok=highlight_with('green'),
         highlight_warn=highlight_with('yellow'),
         highlight_error=highlight_with('red'),
+        hard_percent_limit=hard_percent_limit,
+        soft_percent_limit=soft_percent_limit,
         cache_path=os.path.expanduser('~'),
         cache_seconds=cache_seconds,
         context=context,
@@ -178,8 +183,8 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
                 _logger.warn('skipping ' + str(container))
                 continue
             args = kexec_args + \
-                   ['-n', pod.namespace, '-c', container.name, pod.name, '--'] + \
-                   remote_cmd
+                ['-n', pod.namespace, '-c', container.name, pod.name, '--'] + \
+                remote_cmd
             if prefix:
                 args.insert(0, '[%s/%s] ' % (pod.name, container.name))
                 kubectl.call_prefix(*args)
@@ -279,37 +284,79 @@ def health(obj, columns, flat):
 
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
+    extractor = RowExtractor(obj, columns)
     headers = [] if obj.no_headers else columns
-    rows = each_row(obj.kubey.each_node(obj.maximum, True), flattener, columns)
+    rows = each_row(obj.kubey.each_node(obj.maximum, True), flattener, extractor)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
 ######################################################################
 
 
-_percent_re = re.compile(r'^(\d+)%$')
 _skip_re = re.compile(r'^[\'"].*[\'"]$')
 
 
-def mark_percentages(info, limit):
-    soft_limit = limit * (limit / 100.0)
-    for i, val in enumerate(info):
-        m = _percent_re.match(val)
+class ColumnSerializer(object):
+    def __init__(self, config):
+        self._config = config
+
+    def match(self, _column):
+        return True
+
+    def serialize(self, obj):
+        return str(obj)
+
+
+class PodsSerializer(ColumnSerializer):
+    def match(self, column):
+        return column == 'pods'
+
+    def serialize(self, pods):
+        return pods
+
+
+class PercentSerializer(ColumnSerializer):
+    PERCENT_RE = re.compile(r'^(\d+)\s*%$')
+
+    def match(self, column):
+        return column.endswith('_percent')
+
+    def serialize(self, value):
+        m = self.PERCENT_RE.match(value)
         if not m:
-            continue
+            return value
         v = int(m.group(1))
-        if v >= limit:
-            info[i] = click.style(val, bold=True, fg='red')
-        elif v >= soft_limit:
-            info[i] = click.style(val, fg='yellow')
+        if v >= self._config.hard_percent_limit:
+            return self._config.highlight_error(value)
+        if v >= self._config.soft_percent_limit:
+            return self._config.highlight_warn(value)
+        return value
+
+
+class RowExtractor(object):
+    def __init__(self, config, attributes):
+        self._config = config
+        self._attributes = attributes
+        self._serializers = [PercentSerializer(config), PodsSerializer(config)]
+
+    def row_from(self, obj):
+        row = []
+        for attr in self._attributes:
+            value = getattr(obj, attr)
+            for serializer in self._serializers:
+                if serializer.match(attr):
+                    value = serializer.serialize(value)
+                    break
+            row.append(value)
+        return row
 
 
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
 
 
-def each_row(objs, flattener, columns):
-    for row in table_of(objs, columns):
+def each_row(objs, flattener, row_extractor):
+    for row in table_of(objs, row_extractor):
         if flattener:
             for i, item in enumerate(row):
                 if is_iterable(item):
@@ -334,8 +381,8 @@ def each_row(objs, flattener, columns):
             exploded = [''] * len(row)  # reset next row with empty columns
 
 
-def table_of(objs, columns):
-    return ([getattr(o, c) for c in columns] for o in objs)
+def table_of(objs, row_extractor):
+    return (row_extractor.row_from(o) for o in objs)
 
 
 # not using shlex/pipes.quote because we want glob expansion for remote calls
