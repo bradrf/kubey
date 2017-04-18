@@ -72,9 +72,11 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         wide = width > 160
 
     highlight = sys.stdout.isatty()
+
     def highlight_with(color):
         if not highlight:
             return str
+
         def colorizer(obj):
             return click.style(str(obj), bold=True, fg=color)
         return colorizer
