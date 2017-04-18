@@ -20,16 +20,28 @@ class Condition(object):
         self._expected_status = expect
 
     def __repr__(self):
-        if self.status == self._expected_status:
+        return '<Condition: {0} status={1} reason={2}>'.format(self.name, self.reason)
+
+    def __str__(self):
+        if self.ok:
             return self.name
         rstr = '{0}:{1}'.format(self.name, self.reason) if self.reason else self.name
         return self._config.highlight_error(rstr)
+
+    @property
+    def ok(self):
+        return self.status == self._expected_status
 
 
 class NodeCondition(Condition):
     def __init__(self, config, info):
         info = copy(info)
         name = info['type']
-        info['reason'] = re.sub(r'^kubelet (has|is) ', '', info.get('reason', ''))
+        info['reason'] = re.sub(r'^kubelet (has|is) ', '', info.get('message', ''))
         # conditions other than "ready" use a positive to indicate "not satisfied (i.e. failed)"
         super(self.__class__, self).__init__(config, info, name == 'Ready')
+
+    def __str__(self):
+        if self.ok:
+            return self.reason
+        return super(self.__class__, self).__str__()

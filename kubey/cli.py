@@ -112,8 +112,9 @@ def list_pods(obj, columns, flat):
     # TODO: replace (extend?) node to be name instead of private ip now we have node info for health
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
+    extractor = RowExtractor(obj, columns)
     headers = [] if obj.no_headers else columns
-    rows = each_row(obj.kubey.each_pod(obj.maximum), flattener, columns)
+    rows = each_row(obj.kubey.each_pod(obj.maximum), flattener, extractor)
     click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
 
 
@@ -279,9 +280,6 @@ def tail(obj, follow, prefix, number):
 def health(obj, columns, flat):
     '''Show health stats about matches.'''
 
-    # for node in obj.kubey.each_node():
-    #     print node, node.pods
-
     columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     extractor = RowExtractor(obj, columns)
@@ -312,6 +310,8 @@ class PodsSerializer(ColumnSerializer):
         return column == 'pods'
 
     def serialize(self, pods):
+        if self._config.namespace == Kubey.ANY:
+            return [pod.__str__(True) for pod in pods]
         return pods
 
 
