@@ -16,6 +16,14 @@ from .pod import Pod
 _logger = None
 
 
+class ColumnsOption(click.ParamType):
+    name = 'columns'
+    envvar_list_splitter = ','
+
+    def convert(self, value, param, ctx):
+        return self.split_envvar_value(value)
+
+
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
 @click.version_option()
 @click.option('--cache-seconds', envvar='KUBEY_CACHE_SECONDS', default=300, show_default=True,
@@ -103,14 +111,12 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
 
 @cli.command(name='list')
-@click.option('-c', '--columns', default=','.join(Pod.ATTRIBUTES), show_default=True,
-              help='specify specific columns to show')
+@click.option('-c', '--columns', type=ColumnsOption(), default=','.join(Pod.ATTRIBUTES),
+              show_default=True, help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
 def list_pods(obj, columns, flat):
     '''List available pods and containers for current context.'''
-    # TODO: replace (extend?) node to be name instead of private ip now we have node info for health
-    columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     extractor = RowExtractor(obj, columns)
     headers = [] if obj.no_headers else columns
@@ -273,14 +279,12 @@ def tail(obj, follow, prefix, number):
 
 
 @cli.command()
-@click.option('-c', '--columns', default=','.join(Node.ATTRIBUTES),
-              help='specify specific columns to show')
+@click.option('-c', '--columns', type=ColumnsOption(), default=','.join(Node.ATTRIBUTES),
+              show_default=True, help='specify specific columns to show')
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
 def health(obj, columns, flat):
     '''Show health stats about matches.'''
-
-    columns = [c.strip() for c in columns.split(',')]
     flattener = flatten if flat else None
     extractor = RowExtractor(obj, columns)
     headers = [] if obj.no_headers else columns
