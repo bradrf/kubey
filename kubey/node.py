@@ -5,6 +5,7 @@ from .condition import NodeCondition
 class Node(object):
     ATTRIBUTES = ('name', 'status', 'cpu_cores', 'cpu_percent', 'memory_bytes', 'memory_percent',
                   'creation_time', 'conditions', 'pods')
+    PRIMARY_ATTRIBUTES = ('name', 'status', 'cpu_percent', 'memory_percent', 'conditions', 'pods')
 
     def __init__(self, config, info, all_pods, top_info):
         self._config = config

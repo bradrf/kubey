@@ -8,6 +8,7 @@ from .container import Container
 class Pod(object):
     ATTRIBUTES = ('name', 'namespace', 'node_name', 'phase', 'host_ip',
                   'pod_ip', 'start_time', 'conditions', 'containers')
+    PRIMARY_ATTRIBUTES = ('name', 'phase', 'conditions', 'containers')
 
     _TERMINATED_STATUS = {
         'ready': False,

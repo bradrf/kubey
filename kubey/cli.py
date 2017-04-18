@@ -13,15 +13,36 @@ from .node import Node
 from .pod import Pod
 
 
-_logger = None
-
-
 class ColumnsOption(click.ParamType):
     name = 'columns'
     envvar_list_splitter = ','
 
+    def __init__(self, cls):
+        self._cls = cls
+
+    @property
+    def default(self):
+        return self._join(self._cls.PRIMARY_ATTRIBUTES)
+
+    @property
+    def help(self):
+        return 'specify one or more of {0}  [default: {1}]'.format(
+            self._join(self._cls.ATTRIBUTES), self.default)
+
     def convert(self, value, param, ctx):
-        return self.split_envvar_value(value)
+        columns = self.split_envvar_value(value)
+        unknown = set(columns) - (set(columns) & set(self._cls.ATTRIBUTES))
+        if len(unknown) > 0:
+            self.fail('unknown columns: ' + ','.join(unknown))
+        return columns
+
+    def _join(self, attrs):
+        return self.envvar_list_splitter.join(attrs)
+
+
+_logger = None
+_node_columns = ColumnsOption(Node)
+_pod_columns = ColumnsOption(Pod)
 
 
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
@@ -113,8 +134,8 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 
 
 @cli.command(name='list')
-@click.option('-c', '--columns', type=ColumnsOption(), default=','.join(Pod.ATTRIBUTES),
-              show_default=True, help='specify specific columns to show')
+@click.option('-c', '--columns', type=_pod_columns, default=_pod_columns.default,
+              help=_pod_columns.help)
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
 def list_pods(obj, columns, flat):
@@ -213,7 +234,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
 def ctl_each(obj, command, arguments):
-    '''Invoke a command for each pod matched.'''
+    '''Invoke any kubectl command for each pod matched and collate the output.'''
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
     collector = RowCollector()
@@ -281,8 +302,8 @@ def tail(obj, follow, prefix, number):
 
 
 @cli.command()
-@click.option('-c', '--columns', type=ColumnsOption(), default=','.join(Node.ATTRIBUTES),
-              show_default=True, help='specify specific columns to show')
+@click.option('-c', '--columns', type=_node_columns, default=_node_columns.default,
+              help=_node_columns.help)
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
 def health(obj, columns, flat):
