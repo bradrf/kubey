@@ -19,14 +19,8 @@ class ColumnsOption(click.ParamType):
 
     def __init__(self, cls):
         self._cls = cls
-
-    @property
-    def default(self):
-        return self._join(self._cls.PRIMARY_ATTRIBUTES)
-
-    @property
-    def help(self):
-        return 'specify one or more of {0}  [default: {1}]'.format(
+        self.default = self._join(self._cls.PRIMARY_ATTRIBUTES)
+        self.help = 'specify one or more of {0}  [default: {1}]'.format(
             self._join(self._cls.ATTRIBUTES), self.default)
 
     def convert(self, value, param, ctx):
@@ -140,6 +134,9 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
 @click.pass_obj
 def list_pods(obj, columns, flat):
     '''List available pods and containers for current context.'''
+    # FIXME: find a "click" way to ask if columns were provided or defaults used
+    if obj.namespace == Kubey.ANY and '-c' not in sys.argv and '--columns' not in sys.argv:
+        columns = ['namespace'] + columns
     flattener = flatten if flat else None
     extractor = RowExtractor(obj, columns)
     headers = [] if obj.no_headers else columns
@@ -233,8 +230,8 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
-def ctl_each(obj, command, arguments):
-    '''Invoke any kubectl command for each pod matched and collate the output.'''
+def ctl(obj, command, arguments):
+    '''Invoke any kubectl command directly for each pod matched and collate the output.'''
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
     collector = RowCollector()
