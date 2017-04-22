@@ -1,7 +1,9 @@
 import os
 import re
 import logging
+import time
 
+from . import timestamp
 from .kubectl import KubeCtl
 from .cache import Cache
 from .pod import Pod
@@ -67,18 +69,25 @@ class Kubey(object):
             if self._exceeded_max(len(self._nodes), limit):
                 break
 
-    def each_event(self, limit=None, watch=False):
+    def each_event(self, limit=None, watch_seconds=5):
         count = 0
-        args = ['events', '--all-namespaces', '--watch']
-        json = self.kubectl.call_async('get', *args)
-        for info in json['items']:
-            if not self._event_matches(info):
-                continue
-            event = Event(self._config, info)
-            yield event
-            count += 1
-            if self._exceeded_max(count, limit):
-                break
+        args = ['events', '--all-namespaces', '--sort-by=lastTimestamp']
+        last_ts = youngest_ts = timestamp.epoch
+        while True:
+            json = self.kubectl.call_json('get', *args)
+            for info in json['items']:
+                if not self._event_matches(info):
+                    continue
+                last_ts = timestamp.parse(info['lastTimestamp'])
+                if last_ts <= youngest_ts:
+                    continue
+                event = Event(self._config, info)
+                yield event
+                count += 1
+                if self._exceeded_max(count, limit):
+                    break
+            youngest_ts = last_ts
+            time.sleep(watch_seconds)
 
     # Private
 

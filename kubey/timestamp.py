@@ -4,6 +4,9 @@ import dateutil.relativedelta
 import dateutil.tz
 
 
+epoch = datetime.fromtimestamp(0, tz=dateutil.tz.tzutc())
+
+
 def now():
     return datetime.now(dateutil.tz.tzlocal())
 
@@ -14,12 +17,12 @@ def parse(string, default=None):
     return dateutil.parser.parse(string)
 
 
-def epoch():
-    return datetime.fromtimestamp(0, tz=dateutil.tz.tzutc()).isoformat()
-
-
 def delta(t1, t2):
     return dateutil.relativedelta.relativedelta(t1, t2)
+
+
+def as_local(stamp):
+    return stamp.astimezone(dateutil.tz.tzlocal())
 
 
 def in_words_from_now(stamp, sep='_', precision='{:0.1f}'):

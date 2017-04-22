@@ -22,10 +22,10 @@ class RowCollector(object):
 
 
 class RowExtractor(object):
-    def __init__(self, config, attributes):
+    def __init__(self, config, attributes, serializers):
         self._config = config
         self._attributes = attributes
-        self._serializers = serializers.all(config)
+        self._serializers = serializers
 
     def row_from(self, obj):
         row = []
@@ -41,10 +41,19 @@ class RowExtractor(object):
 
 def tabulate(config, objs, columns, flat=False, serialize=True):
     flattener = flatten if flat else None
-    extractor = RowExtractor(config, columns)
+    extractor = RowExtractor(config, columns, serializers.default(config))
     headers = [] if config.no_headers else columns
     rows = each_row(objs, flattener, extractor)
     return real_tabulate.tabulate(rows, headers=headers, tablefmt=config.table_format)
+
+
+def lines(config, objs, columns):
+    serials = [s for s in serializers.default(config)
+               if not isinstance(s, serializers.RelativeTimestampSerializer)] + \
+        [serializers.TimestampSerializer(config)]
+    extractor = RowExtractor(config, columns, serials)
+    for row in each_row(objs, None, extractor):
+        yield '   '.join((str(i) for i in row))
 
 
 def each_row(objs, flattener, row_extractor):

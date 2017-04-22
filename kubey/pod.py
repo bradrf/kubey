@@ -11,7 +11,7 @@ class Pod(object):
     _TERMINATED_STATUS = {
         'ready': False,
         'restartCount': -1,
-        'state': {'terminated': {'startedAt': timestamp.epoch()}}
+        'state': {'terminated': {'startedAt': timestamp.epoch.isoformat()}}
     }
 
     class Phase(object):

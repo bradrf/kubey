@@ -304,11 +304,11 @@ def tail(obj, follow, prefix, number):
 @click.option('-c', '--columns', type=_event_columns, default=_event_columns.default,
               help=_event_columns.help)
 @click.pass_obj
-def events(obj, columns, follow, prefix):
+def events(obj, columns):
     if obj.namespace == Kubey.ANY and '-c' not in sys.argv and '--columns' not in sys.argv:
         columns = ['namespace'] + columns
-    for event in obj.kubey.each_event(obj.maximum, follow):
-        click.echo(event)
+    for line in tabular.lines(obj, obj.kubey.each_event(obj.maximum), columns):
+        click.echo(line)
 
 
 # not using shlex/pipes.quote because we want glob expansion for remote calls

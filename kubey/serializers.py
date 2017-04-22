@@ -19,6 +19,11 @@ class TimestampSerializer(ColumnSerializer):
         return column.endswith('_time')
 
     def serialize(self, stamp):
+        return timestamp.as_local(stamp)
+
+
+class RelativeTimestampSerializer(TimestampSerializer):
+    def serialize(self, stamp):
         return timestamp.in_words_from_now(stamp, ' ')
 
 
@@ -62,6 +67,6 @@ class PercentSerializer(ColumnSerializer):
         return value
 
 
-def all(config):
-    return (TimestampSerializer(config), LevelSerializer(config),
+def default(config):
+    return (RelativeTimestampSerializer(config), LevelSerializer(config),
             PodsSerializer(config), PercentSerializer(config))
