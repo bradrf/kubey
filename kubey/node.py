@@ -6,7 +6,7 @@ from .condition import NodeCondition
 class Node(Item):
     PRIMARY_ATTRIBUTES = ('identity', 'status', 'cpu_percent',
                           'memory_percent', 'conditions', 'pods')
-    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('name', 'private_ip', 'external_ip', 'hostname',
+    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('name', 'labels', 'private_ip', 'external_ip', 'hostname',
                                        'cpu_cores', 'memory_bytes', 'creation_time')
 
     def __init__(self, config, info, all_pods, top_info):

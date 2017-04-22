@@ -6,7 +6,7 @@ from .container import Container
 
 class Pod(Item):
     PRIMARY_ATTRIBUTES = ('name', 'phase', 'conditions', 'containers')
-    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('namespace', 'node_name', 'node',
+    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('labels', 'namespace', 'node_name', 'node',
                                        'host_ip', 'pod_ip', 'start_time')
 
     _TERMINATED_STATUS = {

@@ -6,7 +6,7 @@ class Item(object):
             super(Item.UnknownAttributeError, self).__init__(
                 "Unknown attributes: {0}".format(attributes))
 
-    COMMON_ATTRIBUTES = ('name', 'namespace')
+    COMMON_ATTRIBUTES = ('name', 'namespace', 'labels')
 
     def __init__(self, config, info):
         self._config = config
@@ -32,14 +32,25 @@ class Item(object):
     @property
     def _simple_attrvals(self):
         for attr in self.COMMON_ATTRIBUTES:
-            if hasattr(self, attr):
-                yield (attr, getattr(self, attr))
+            av = self._attrval_if_simple(attr)
+            if av:
+                yield av
         for attr in self.PRIMARY_ATTRIBUTES:
-            if attr in self.COMMON_ATTRIBUTES or self._property(attr):
-                continue
-            val = getattr(self, attr)
-            if not isinstance(val, (list, tuple, dict)):
-                yield (attr, val)
+            if attr not in self.COMMON_ATTRIBUTES:
+                av = self._attrval_if_simple(attr)
+                if av:
+                    yield av
+
+    def _attrval_if_simple(self, attr):
+        if hasattr(self, attr):
+            if not self._property(attr):
+                val = getattr(self, attr)
+                if self._simple(val):
+                    return (attr, val)
+
+    @staticmethod
+    def _simple(val):
+        return isinstance(val, (basestring, int, float, None.__class__))
 
     def _property(self, attr):
         return isinstance(getattr(type(self), attr, None), property)

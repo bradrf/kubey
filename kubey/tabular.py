@@ -1,3 +1,4 @@
+import types
 import tabulate as real_tabulate
 from configstruct import OpenStruct
 from . import serializers
@@ -64,7 +65,7 @@ def each_row(items, flattener, row_extractor):
             yield row
             continue
         # extract out a _copy_ of iterable items and populate into "exploded" rows
-        iterables = {i: list(item) for i, item in enumerate(row) if is_iterable(item)}
+        iterables = {i: expand(item) for i, item in enumerate(row) if is_iterable(item)}
         if not iterables:
             yield row
             continue
@@ -82,13 +83,21 @@ def each_row(items, flattener, row_extractor):
 
 
 def flatten(enumerable):
-    return ' '.join(str(i) for i in enumerable)
+    return ' '.join(str(i) for i in expand(enumerable))
 
 
 def table_of(items, row_extractor):
     return (row_extractor.row_from(o) for o in items)
 
 
+def expand(item):
+    if isinstance(item, types.GeneratorType):
+        return list(item)
+    if isinstance(item, dict):
+        return ['{0}={1}'.format(k, v) for k, v in item.iteritems()]
+    return item
+
+
 def is_iterable(item):
     # just simple ones for now
-    return isinstance(item, (list, tuple))
+    return isinstance(item, (list, tuple, dict))

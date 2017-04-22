@@ -15,9 +15,6 @@ from .node import Node
 from .pod import Pod
 
 
-# TODO: add labels columns!!!!
-
-
 class ColumnsOption(click.ParamType):
     name = 'columns'
     envvar_list_splitter = ','
@@ -32,6 +29,11 @@ class ColumnsOption(click.ParamType):
         if value == 'ALL':
             return self._cls.ATTRIBUTES
         columns = self.split_envvar_value(value)
+        if 'DEF' in columns:
+            i = columns.index('DEF')
+            del(columns[i])
+            for c in reversed(self._cls.PRIMARY_ATTRIBUTES):
+                columns.insert(i, c)
         unknown = set(columns) - (set(columns) & set(self._cls.ATTRIBUTES))
         if len(unknown) > 0:
             self.fail('unknown columns: ' + ','.join(unknown))
