@@ -15,7 +15,7 @@ class Condition(object):
         elif status == 'False':
             self.status = False
         else:
-            raise self.UnknownStatusError(str(info))
+            self.status = status
         self.reason = info.get('reason')
         self._expected_status = expect
 
@@ -25,7 +25,7 @@ class Condition(object):
     def __str__(self):
         if self.ok:
             return self.name
-        rstr = '{0}:{1}'.format(self.name, self.reason) if self.reason else self.name
+        rstr = '{0}:{1}'.format(self.name, self.reason) if self.reason else ('not ' + self.name)
         return self._config.highlight_error(rstr)
 
     @property

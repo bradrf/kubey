@@ -1,23 +1,17 @@
-from datetime import datetime
-import dateutil.parser
-import dateutil.tz
+from . import timestamp
 from .condition import Condition
 from .container import Container
 
 
 class Pod(object):
-    ATTRIBUTES = ('name', 'namespace', 'node_name', 'phase', 'host_ip',
-                  'pod_ip', 'start_time', 'conditions', 'containers')
     PRIMARY_ATTRIBUTES = ('name', 'phase', 'conditions', 'containers')
+    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('namespace', 'node_name', 'node',
+                                       'host_ip', 'pod_ip', 'start_time')
 
     _TERMINATED_STATUS = {
         'ready': False,
         'restartCount': -1,
-        'state': {
-            'terminated': {
-                'startedAt': datetime.fromtimestamp(0, tz=dateutil.tz.tzutc()).isoformat()
-            }
-        }
+        'state': {'terminated': {'startedAt': timestamp.epoch()}}
     }
 
     class Phase(object):
@@ -55,11 +49,11 @@ class Pod(object):
         self.name = metadata['name']
         self.namespace = metadata['namespace']
         self.node_name = spec.get('nodeName')
-        self.phase = self.Phase(self._config, status['phase'])
+        self._node = None
+        self.phase = self.Phase(self._config, status)
         self.host_ip = status.get('hostIP')
         self.pod_ip = status.get('podIP')
-        self.start_time = dateutil.parser.\
-            parse(status['startTime']) if 'startTime' in status else None
+        self.start_time = timestamp.parse(status.get('startTime'))
         self._extract_conditions(status.get('conditions', []))
         self._extract_containers(spec['containers'],
                                  status.get('containerStatuses', []),
@@ -73,6 +67,10 @@ class Pod(object):
         if namespaced:
             return '{0}/{1}{2}'.format(self.namespace, self.name, pstr)
         return '{0}{1}'.format(self.name, pstr)
+
+    @property
+    def node(self):
+        return [self.node_name, self.host_ip]
 
     def _extract_conditions(self, info):
         self.conditions = [Condition(self._config, o) for o in info]

@@ -6,6 +6,7 @@ from .kubectl import KubeCtl
 from .cache import Cache
 from .pod import Pod
 from .node import Node
+from .event import Event
 
 
 _logger = logging.getLogger(__name__)
@@ -59,11 +60,24 @@ class Kubey(object):
             if not self._node_matches(info):
                 continue
             node = Node(self._config, info, self.each_pod(), top_info)
-            if not self._any_match and len(node.pods) == 0:
+            if self._config.namespace != self.ANY and len(node.pods) == 0:
                 continue  # no matching pods found
             self._nodes.append(node)
             yield node
             if self._exceeded_max(len(self._nodes), limit):
+                break
+
+    def each_event(self, limit=None, watch=False):
+        count = 0
+        args = ['events', '--all-namespaces', '--watch']
+        json = self.kubectl.call_async('get', *args)
+        for info in json['items']:
+            if not self._event_matches(info):
+                continue
+            event = Event(self._config, info)
+            yield event
+            count += 1
+            if self._exceeded_max(count, limit):
                 break
 
     # Private
@@ -97,7 +111,6 @@ class Kubey(object):
             pod = ''
         if container == self.ANY:
             container = ''
-        self._any_match = not node and not pod and not container
         self._node_re = re.compile(node, re.IGNORECASE)
         self._pod_re = re.compile(pod, re.IGNORECASE)
         self._container_re = re.compile(container, re.IGNORECASE)
@@ -117,6 +130,11 @@ class Kubey(object):
 
     def _node_matches(self, info):
         return self._node_re.search(info['metadata']['name'])
+
+    def _event_matches(self, info):
+        return (self._namespace_re.search(info['metadata']['namespace']) and
+                self._node_re.search(info['source'].get('host', '')) and
+                self._pod_re.search(info['metadata']['name']))
 
     def _get_top_node_info(self):
         info = {}

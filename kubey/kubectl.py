@@ -2,6 +2,7 @@ import sys
 import logging
 import subprocess
 import json
+from configstruct import OpenStruct
 
 from .background_popen import BackgroundPopen
 from .table_row_popen import TableRowPopen
@@ -11,19 +12,26 @@ _logger = logging.getLogger(__name__)
 
 
 class KubeCtl(object):
-    def __init__(self, context=None):
+    def __init__(self, context=None, config=None):
         self._kubectl = subprocess.check_output('which kubectl', shell=True).strip()
         self._context = context
+        self._config = config
         self._processes = []
         self._threads = []
         self.final_rc = 0
 
     @property
     def context(self):
-        if not self._context:
+        if self._context is None:
             self._context = subprocess.check_output(
                 self._commandline('config', 'current-context')).strip()
         return self._context
+
+    @property
+    def config(self):
+        if self._config is None:
+            self._config = OpenStruct(self.call_json('config', 'view'))
+        return self._config
 
     def call(self, cmd, *args):
         self.call_async(cmd, *args)

@@ -1,11 +1,12 @@
-import dateutil.parser
+from . import timestamp
 from .condition import NodeCondition
 
 
 class Node(object):
-    ATTRIBUTES = ('name', 'status', 'cpu_cores', 'cpu_percent', 'memory_bytes', 'memory_percent',
-                  'creation_time', 'conditions', 'pods')
-    PRIMARY_ATTRIBUTES = ('name', 'status', 'cpu_percent', 'memory_percent', 'conditions', 'pods')
+    PRIMARY_ATTRIBUTES = ('identity', 'status', 'cpu_percent',
+                          'memory_percent', 'conditions', 'pods')
+    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('name', 'private_ip', 'external_ip', 'hostname',
+                                       'cpu_cores', 'memory_bytes', 'creation_time')
 
     def __init__(self, config, info, all_pods, top_info):
         self._config = config
@@ -15,12 +16,18 @@ class Node(object):
         status = info['status']
         spec = info['spec']
         self.name = metadata['name']
-        self.creation_time = dateutil.parser.parse(metadata['creationTimestamp'])
+        self.creation_time = timestamp.parse(metadata['creationTimestamp'])
         self.schedulable = not spec.get('unschedulable', False)
         self.status = 'Ready' if self.schedulable else \
             self._config.highlight_warn('SchedulingDisabled')
         self.conditions = [NodeCondition(self._config, o) for o in status['conditions']]
+        self._extract_addresses(status['addresses'])
         self._consider(top_info)
+
+    @property
+    def identity(self):
+        return [self.name] + \
+            [a for a in (self.private_ip, self.external_ip, self.hostname) if a]
 
     @property
     def pods(self):
@@ -31,6 +38,21 @@ class Node(object):
     def __repr__(self):
         return '<Node: {0} schedulable={1}>'.format(
             self.name, self.schedulable)
+
+    def _extract_addresses(self, info):
+        self.private_ip = self.external_ip = self.hostname = None
+        for item in info:
+            key = item['type']
+            if key == 'InternalIP':
+                self.private_ip = item['address']
+            elif key == 'LegacyHostIP' and not self.private_ip:
+                self.private_ip = item['address']
+            elif key == 'ExternalIP':
+                self.external_ip = item['address']
+            elif key == 'Hostname':
+                val = item['address']
+                if val not in self.name:
+                    self.hostname = val
 
     def _consider(self, top_info):
         info = top_info.get(self.name)
