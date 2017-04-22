@@ -1,13 +1,16 @@
 import re
-from copy import copy
+from .item import Item
 
 
-class Condition(object):
+class Condition(Item):
+    PRIMARY_ATTRIBUTES = ('name', 'status', 'reason')
+    ATTRIBUTES = PRIMARY_ATTRIBUTES
+
     class UnknownStatusError(ValueError):
         pass
 
     def __init__(self, config, info, expect=True):
-        self._config = config
+        super(Condition, self).__init__(config, info)
         self.name = info['type']
         status = info['status']
         if status == 'True':
@@ -18,9 +21,6 @@ class Condition(object):
             self.status = status
         self.reason = info.get('reason')
         self._expected_status = expect
-
-    def __repr__(self):
-        return '<Condition: {0} status={1} reason={2}>'.format(self.name, self.reason)
 
     def __str__(self):
         if self.ok:
@@ -35,11 +35,10 @@ class Condition(object):
 
 class NodeCondition(Condition):
     def __init__(self, config, info):
-        info = copy(info)
-        name = info['type']
-        info['reason'] = re.sub(r'^kubelet (has|is) ', '', info.get('message', ''))
-        # conditions other than "ready" use a positive to indicate "not satisfied (i.e. failed)"
-        super(self.__class__, self).__init__(config, info, name == 'Ready')
+        super(NodeCondition, self).__init__(config, info)
+        self.reason = re.sub(r'^kubelet (has|is) ', '', info.get('message', ''))
+        # conditions other than "ready" use a positive to indicate "not satisfied" (i.e. failed)
+        self._expected_status = self.name == 'Ready'
 
     def __str__(self):
         if self.ok:

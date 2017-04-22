@@ -1,21 +1,21 @@
 from . import timestamp
+from .item import Item
 from .condition import NodeCondition
 
 
-class Node(object):
+class Node(Item):
     PRIMARY_ATTRIBUTES = ('identity', 'status', 'cpu_percent',
                           'memory_percent', 'conditions', 'pods')
     ATTRIBUTES = PRIMARY_ATTRIBUTES + ('name', 'private_ip', 'external_ip', 'hostname',
                                        'cpu_cores', 'memory_bytes', 'creation_time')
 
     def __init__(self, config, info, all_pods, top_info):
-        self._config = config
+        super(Node, self).__init__(config, info)
         self._all_pods = all_pods
         self._pods = None
         metadata = info['metadata']
         status = info['status']
         spec = info['spec']
-        self.name = metadata['name']
         self.creation_time = timestamp.parse(metadata['creationTimestamp'])
         self.schedulable = not spec.get('unschedulable', False)
         self.status = 'Ready' if self.schedulable else \
@@ -34,10 +34,6 @@ class Node(object):
         if self._pods is None:
             self._pods = [p for p in self._all_pods if p.node_name == self.name]
         return self._pods
-
-    def __repr__(self):
-        return '<Node: {0} schedulable={1}>'.format(
-            self.name, self.schedulable)
 
     def _extract_addresses(self, info):
         self.private_ip = self.external_ip = self.hostname = None

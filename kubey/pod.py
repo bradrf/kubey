@@ -1,9 +1,10 @@
 from . import timestamp
+from .item import Item
 from .condition import Condition
 from .container import Container
 
 
-class Pod(object):
+class Pod(Item):
     PRIMARY_ATTRIBUTES = ('name', 'phase', 'conditions', 'containers')
     ATTRIBUTES = PRIMARY_ATTRIBUTES + ('namespace', 'node_name', 'node',
                                        'host_ip', 'pod_ip', 'start_time')
@@ -42,12 +43,9 @@ class Pod(object):
             return highlighter(self._phase)
 
     def __init__(self, config, info, container_selector):
-        self._config = config
-        metadata = info['metadata']
+        super(self.__class__, self).__init__(config, info)
         status = info['status']
         spec = info['spec']
-        self.name = metadata['name']
-        self.namespace = metadata['namespace']
         self.node_name = spec.get('nodeName')
         self._node = None
         self.phase = self.Phase(self._config, status)
@@ -58,9 +56,6 @@ class Pod(object):
         self._extract_containers(spec['containers'],
                                  status.get('containerStatuses', []),
                                  container_selector)
-
-    def __repr__(self):
-        return '<Pod: {0} namespace={1} phase={2}>'.format(self.name, self.namespace, self.phase)
 
     def __str__(self, namespaced=False):
         pstr = '' if self.phase.running else ':' + str(self.phase)

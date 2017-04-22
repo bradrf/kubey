@@ -69,7 +69,7 @@ class Kubey(object):
             if self._exceeded_max(len(self._nodes), limit):
                 break
 
-    def each_event(self, limit=None, watch_seconds=5):
+    def each_event(self, limit=None, watch_seconds=10):
         count = 0
         args = ['events', '--all-namespaces', '--sort-by=lastTimestamp']
         last_ts = youngest_ts = timestamp.epoch
@@ -86,6 +86,7 @@ class Kubey(object):
                 count += 1
                 if self._exceeded_max(count, limit):
                     break
+            # update after processing all items at least once (avoids dropping items w/ same ts)
             youngest_ts = last_ts
             time.sleep(watch_seconds)
 

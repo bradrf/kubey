@@ -1,13 +1,16 @@
 from . import timestamp
+from .item import Item
 
 
-class Container(object):
+class Container(Item):
     class UnknownStateError(ValueError):
         pass
 
+    PRIMARY_ATTRIBUTES = ('name', 'ready')
+    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('state', 'started_at', 'restart_count', 'image')
+
     def __init__(self, config, info, status):
-        self._config = config
-        self.name = info['name']
+        super(self.__class__, self).__init__(config, info)
         state_info = status['state']
         if len(state_info) != 1:
             raise self.UnknownStateError(str(status))
@@ -18,14 +21,13 @@ class Container(object):
         self.ready = status['ready']
         self.image = info['image']
 
-    def __repr__(self):
-        return '<Container: {0} ready={1}>'.format(self.name, self.ready)
-
     def __str__(self):
         highlighter = self._config.highlight_ok if self.ready else self._config.highlight_error
         rstr = highlighter(self.ready)
         if self._config.wide:
-            if self.restart_count > 0:
+            if self.restart_count > 9:
+                rsts = self._config.highlight_error(' restarts:{0}'.format(self.restart_count))
+            elif self.restart_count > 0:
                 rsts = self._config.highlight_warn(' restarts:{0}'.format(self.restart_count))
             else:
                 rsts = ''
