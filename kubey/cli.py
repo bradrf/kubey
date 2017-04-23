@@ -6,6 +6,7 @@ import signal
 import click
 
 from configstruct import OpenStruct
+from collections import defaultdict
 
 from . import tabular
 
@@ -243,9 +244,6 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
         click.get_current_context().exit(kubectl.final_rc)
 
 
-# TODO: when collecting matches, organize by namespace and run one command with many pods per
-#       namespace (tho, likely need an override to force 1:1 exec for things like `describe`)
-# TODO: add placeholder ability like xargs to allow for custom placement of pod names
 @cli.command(name='ctl-each', context_settings=dict(ignore_unknown_options=True))
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
@@ -255,9 +253,12 @@ def ctl_each(obj, command, arguments):
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
     collector = tabular.RowCollector()
+    ns_pods = defaultdict(list)
     for pod in obj.kubey.each_pod(obj.maximum):
-        args = ('-n', pod.namespace) + arguments + (pod.name,)
-        kubectl.call_table_rows(collector.handler_for(pod.namespace), command, *args)
+        ns_pods[pod.namespace].append(pod)
+    for ns, pods in ns_pods.iteritems():
+        args = ['-n', ns] + list(arguments) + [p.name for p in pods]
+        kubectl.call_table_rows(collector.handler_for(ns), command, *args)
     kubectl.wait()
     if collector.rows:
         click.echo(tabular.tabulate(obj, sorted(collector.rows), collector.headers))

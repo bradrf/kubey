@@ -1,7 +1,7 @@
 import types
 import tabulate as real_tabulate
-from configstruct import OpenStruct
 from . import serializers
+from .openitem import OpenItem
 
 
 formats = real_tabulate.tabulate_formats
@@ -18,7 +18,7 @@ class RowCollector(object):
                 if not self.headers:
                     self.headers = ['namespace'] + [c.lower() for c in row]
                 return
-            self.rows.append(OpenStruct(zip(self.headers, [namespace] + row)))
+            self.rows.append(OpenItem(self.headers, [namespace] + row))
         return add
 
 
