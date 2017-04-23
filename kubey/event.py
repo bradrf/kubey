@@ -1,24 +1,19 @@
 from . import timestamp
+from .item import Item
 
 
-class Event(object):
+class Event(Item):
     PRIMARY_ATTRIBUTES = ('last_time', 'name', 'count', 'info')
-    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('first_time', 'level', 'reason', 'message')
+    ATTRIBUTES = PRIMARY_ATTRIBUTES + ('namespace', 'first_time', 'level', 'reason', 'message')
 
     def __init__(self, config, info):
-        self._config = config
-        metadata = info['metadata']
+        super(Event, self).__init__(config, info)
         self.level = info['type']
-        self.name = metadata['name']
-        self.namespace = metadata['namespace']
         self.count = info['count']
         self.reason = info['reason']
         self.message = info['message']
         self.first_time = timestamp.parse(info['firstTimestamp'])
         self.last_time = timestamp.parse(info['lastTimestamp'])
-
-    def __repr__(self):
-        return '<Event: {0} {1}>'.format(self.reason, self.message)
 
     @property
     def info(self):

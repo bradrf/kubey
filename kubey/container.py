@@ -10,7 +10,7 @@ class Container(Item):
     ATTRIBUTES = PRIMARY_ATTRIBUTES + ('state', 'started_at', 'restart_count', 'image')
 
     def __init__(self, config, info, status):
-        super(self.__class__, self).__init__(config, info)
+        super(Container, self).__init__(config, info)
         state_info = status['state']
         if len(state_info) != 1:
             raise self.UnknownStateError(str(status))

@@ -43,4 +43,4 @@ class NodeCondition(Condition):
     def __str__(self):
         if self.ok:
             return self.reason
-        return super(self.__class__, self).__str__()
+        return super(NodeCondition, self).__str__()
