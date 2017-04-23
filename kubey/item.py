@@ -1,3 +1,10 @@
+# Python 3 compatibility (no longer includes `basestring`):
+try:
+    basestring
+except NameError:
+    basestring = str
+
+
 class Item(object):
     '''Common logic shared across all kinds of objects.'''
 
