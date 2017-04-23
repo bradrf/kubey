@@ -307,6 +307,7 @@ def tail(obj, follow, prefix, number):
               help=_event_columns.help)
 @click.pass_obj
 def events(obj, columns):
+    '''Show events associated with matched nodes, pods, and/or containers.'''
     if obj.namespace == Kubey.ANY and '-c' not in sys.argv and '--columns' not in sys.argv:
         columns = ['namespace'] + columns
     for line in tabular.lines(obj, obj.kubey.each_event(obj.maximum), columns):
