@@ -5,13 +5,49 @@ import re
 import signal
 import click
 
-from tabulate import tabulate, tabulate_formats
 from configstruct import OpenStruct
+from collections import defaultdict
+
+from . import tabular
 
 from .kubey import Kubey
+from .event import Event
+from .node import Node
+from .pod import Pod
+
+
+class ColumnsOption(click.ParamType):
+    name = 'columns'
+    envvar_list_splitter = ','
+
+    def __init__(self, cls):
+        self._cls = cls
+        self.default = self._join(self._cls.PRIMARY_ATTRIBUTES)
+        self.help = 'specify one or more of ALL,{0}  [default: {1}]'.format(
+            self._join(self._cls.ATTRIBUTES), self.default)
+
+    def convert(self, value, param, ctx):
+        if value == 'ALL':
+            return self._cls.ATTRIBUTES
+        columns = self.split_envvar_value(value)
+        if 'DEF' in columns:
+            i = columns.index('DEF')
+            del(columns[i])
+            for c in reversed(self._cls.PRIMARY_ATTRIBUTES):
+                columns.insert(i, c)
+        unknown = set(columns) - (set(columns) & set(self._cls.ATTRIBUTES))
+        if len(unknown) > 0:
+            self.fail('unknown columns: ' + ','.join(unknown))
+        return columns
+
+    def _join(self, attrs):
+        return self.envvar_list_splitter.join(attrs)
 
 
 _logger = None
+_event_columns = ColumnsOption(Event)
+_node_columns = ColumnsOption(Node)
+_pod_columns = ColumnsOption(Pod)
 
 
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
@@ -25,7 +61,7 @@ _logger = None
 @click.option('-n', '--namespace', envvar='KUBEY_NAMESPACE', default='production',
               show_default=True, help='namespace to use when selecting')
 @click.option('-f', '--format', 'table_format', envvar='KUBEY_TABLE_FORMAT',
-              type=click.Choice(tabulate_formats), default='simple',
+              type=click.Choice(tabular.formats), default='simple',
               show_default=True, help='output format of tabular data (e.g. listing)')
 @click.option('-m', '--max', 'maximum', type=int, help='max number of matches')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
@@ -61,8 +97,25 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         width, height = click.get_terminal_size()
         wide = width > 160
 
+    highlight = sys.stdout.isatty()
+
+    def highlight_with(color):
+        if not highlight:
+            return str
+
+        def colorizer(obj):
+            return click.style(str(obj), bold=True, fg=color)
+        return colorizer
+
+    hard_percent_limit = 80     # TODO: consider making cfg'abl
+    soft_percent_limit = hard_percent_limit * (hard_percent_limit / 100.0)
+
     ctx.obj = OpenStruct(
-        highlight=sys.stdout.isatty(),
+        highlight_ok=highlight_with('green'),
+        highlight_warn=highlight_with('yellow'),
+        highlight_error=highlight_with('red'),
+        hard_percent_limit=hard_percent_limit,
+        soft_percent_limit=soft_percent_limit,
         cache_path=os.path.expanduser('~'),
         cache_seconds=cache_seconds,
         context=context,
@@ -85,31 +138,40 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         ctx.invoke(list_pods)
 
 
+@cli.command()
+@click.option('-c', '--columns', type=_node_columns, default=_node_columns.default,
+              help=_node_columns.help)
+@click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
+@click.pass_obj
+def health(obj, columns, flat):
+    '''Show health stats about matches.'''
+    click.echo(tabular.tabulate(obj, obj.kubey.each_node(obj.maximum, True), columns, flat))
+
+
+# FIXME: if --wide use all attributes, not default
 @cli.command(name='list')
-@click.option('-c', '--columns', default=','.join(Kubey.POD_COLUMN_MAP.keys()), show_default=True,
-              help='specify specific columns to show')
+@click.option('-c', '--columns', type=_pod_columns, default=_pod_columns.default,
+              help=_pod_columns.help)
 @click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
 def list_pods(obj, columns, flat):
     '''List available pods and containers for current context.'''
-    # TODO: replace (extend?) node to be name instead of private ip now we have node info for health
-    columns = [c.strip() for c in columns.split(',')]
-    flattener = flatten if flat else None
-    headers = [] if obj.no_headers else columns
-    rows = each_row(obj.kubey.each(columns), flattener)
-    click.echo(tabulate(rows, headers=headers, tablefmt=obj.table_format))
+    # FIXME: find a "click" way to ask if columns were provided or defaults used
+    if obj.namespace == Kubey.ANY and '-c' not in sys.argv and '--columns' not in sys.argv:
+        columns = ['namespace'] + columns
+    click.echo(tabular.tabulate(obj, obj.kubey.each_pod(obj.maximum), columns, flat))
 
 
 @cli.command()
 @click.pass_obj
 def webui(obj):
-    '''List dashboard links for matching pods. Three or fewer will be opened automatically.'''
+    '''List dashboard links for matching pods (if only one matched, URL is opened in browser).'''
     kubectl = obj.kubey.kubectl
     info = click.unstyle(kubectl.call_capture('cluster-info'))
     dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
     urls = []
-    for (namespace, pod_name, containers) in obj.kubey.each():
-        pod_path = '/#/pod/%s/%s?namespace=%s' % (namespace, pod_name, namespace)
+    for pod in obj.kubey.each_pod(obj.maximum):
+        pod_path = '/#/pod/{0}/{1}?namespace={0}'.format(pod.namespace, pod.name)
         urls.append(dash_endpoint + pod_path)
     if len(urls) == 1:
         url = urls[0]
@@ -160,15 +222,16 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
     # TODO: add option to include 'node' name in prefix
-    columns = ['namespace', 'node', 'name', 'containers']
-    for (namespace, node_name, pod_name, containers) in obj.kubey.each(columns):
-        for container in containers:
+    for pod in obj.kubey.each_pod(obj.maximum):
+        for container in pod.containers:
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = kexec_args + ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
+            args = kexec_args + \
+                ['-n', pod.namespace, '-c', container.name, pod.name, '--'] + \
+                remote_cmd
             if prefix:
-                args.insert(0, '[%s/%s] ' % (pod_name, container.name))
+                args.insert(0, '[%s/%s] ' % (pod.name, container.name))
                 kubectl.call_prefix(*args)
             else:
                 kubectl.call_async(*args)
@@ -181,39 +244,26 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
         click.get_current_context().exit(kubectl.final_rc)
 
 
-@cli.command(context_settings=dict(ignore_unknown_options=True))
+@cli.command(name='ctl-each', context_settings=dict(ignore_unknown_options=True))
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
-def each_pod(obj, command, arguments):
-    '''Invoke a command for each pod matched.'''
+def ctl_each(obj, command, arguments):
+    '''Invoke any kubectl command directly for each pod matched and collate the output.'''
     width, height = click.get_terminal_size()
     kubectl = obj.kubey.kubectl
-    collector = RowCollector()
-    for (namespace, pod_name) in obj.kubey.each(['namespace', 'name']):
-        args = ('-n', namespace) + arguments + (pod_name,)
-        kubectl.call_table_rows(collector.handler_for(namespace), command, *args)
+    collector = tabular.RowCollector()
+    ns_pods = defaultdict(list)
+    for pod in obj.kubey.each_pod(obj.maximum):
+        ns_pods[pod.namespace].append(pod)
+    for ns, pods in ns_pods.iteritems():
+        args = ['-n', ns] + list(arguments) + [p.name for p in pods]
+        kubectl.call_table_rows(collector.handler_for(ns), command, *args)
     kubectl.wait()
     if collector.rows:
-        click.echo(tabulate(sorted(collector.rows), headers=collector.headers,
-                            tablefmt=obj.table_format))
+        click.echo(tabular.tabulate(obj, sorted(collector.rows), collector.headers))
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
-
-
-class RowCollector(object):
-    def __init__(self):
-        self.headers = None
-        self.rows = []
-
-    def handler_for(self, namespace):
-        def add(i, row):
-            if i == 1:
-                if not self.headers:
-                    self.headers = ['NAMESPACE'] + row
-                return
-            self.rows.append([namespace] + row)
-        return add
 
 
 @cli.command()
@@ -239,11 +289,11 @@ def tail(obj, follow, prefix, number):
     if follow:
         log_args.append('-f')
 
-    for (namespace, pod_name, containers) in obj.kubey.each():
-        for container in containers:
-            args = ['-n', namespace, '-c', container.name] + log_args + [pod_name]
+    for pod in obj.kubey.each_pod(obj.maximum):
+        for container in pod.containers:
+            args = ['-n', pod.namespace, '-c', container.name] + log_args + [pod.name]
             if prefix:
-                prefix = '[%s:%s] ' % (pod_name, container.name)
+                prefix = '[%s:%s] ' % (pod.name, container.name)
                 kubectl.call_prefix(prefix, 'logs', *args)
             else:
                 kubectl.call_async('logs', *args)
@@ -254,134 +304,26 @@ def tail(obj, follow, prefix, number):
 
 
 @cli.command()
-@click.option('-c', '--columns', default='', help='specify specific columns to show')
-@click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
+@click.option('-c', '--columns', type=_event_columns, default=_event_columns.default,
+              help=_event_columns.help)
 @click.pass_obj
-def health(obj, columns, flat):
-    '''Show health stats about matches.'''
-
-    # TODO: split this giant up!! use generators/enumerators!!
-
-    columns = [c.strip() for c in columns.split(',')]
-    flattener = flatten if flat else None
-
-    addresses = {}
-    conditions = {}
-    pods_selected = {}
-
-    for (node_name, addrs, conds, pods) in \
-            obj.kubey.each_node('name', 'addresses', 'conditions', 'pods'):
-        addrs = [a for a in set(addrs) if a not in node_name]
-        addresses[node_name] = sorted(addrs, reverse=True)
-        conditions[node_name] = conds
-        pods_selected[node_name] = pods
-
-    # TODO: color pods not in ready state! (i.e. what you'd see as red in list)
-    # TODO: restriction of pods still shows everything on node:
-    #       kubey collab-production 'back|sqs' . health
-
-    kubectl = obj.kubey.kubectl
-
-    top_node_rows = []
-    kubectl.call_table_rows(lambda i, row: top_node_rows.append(row), 'top', 'node')
-    kubectl.wait()
-
-    headers = None
-    selected_columns = None
-    rows = []
-    extra_columns = ['CONDITIONS', 'PODS', 'ADDRESSES'] if obj.wide else ['CONDITIONS']
-    for row in top_node_rows:
-        if headers is None:
-            headers = row + extra_columns
-            if columns:
-                selected_columns = []
-                for c in columns:
-                    matches = [i for (i, h) in enumerate(headers) if c in h.lower()]
-                    selected_columns.extend(matches)
-            if obj.no_headers:
-                headers = []
-            continue
-        if obj.highlight:
-            mark_percentages(row, 80)
-        node_name = row[0]
-        if node_name in pods_selected:
-            pod_names = pods_selected[node_name]
-            if obj.wide:
-                row.extend([conditions[node_name], pod_names, addresses[node_name]])
-            else:
-                row.append(conditions[node_name])
-            if selected_columns:
-                row = [i for i in row if row.index(i) in selected_columns]
-            rows.append(row)
-
-    rows = sorted(rows)  # FIXME: should sort as we go
-    if selected_columns:
-        headers = [h for h in headers if headers.index(h) in selected_columns]
-    click.echo(tabulate(each_row(rows, flattener), headers=headers, tablefmt=obj.table_format))
-
-
-######################################################################
-
-
-_percent_re = re.compile(r'^(\d+)%$')
-_skip_re = re.compile(r'^[\'"].*[\'"]$')
-
-
-def mark_percentages(info, limit):
-    soft_limit = limit * (limit / 100.0)
-    for i, val in enumerate(info):
-        m = _percent_re.match(val)
-        if not m:
-            continue
-        v = int(m.group(1))
-        if v >= limit:
-            info[i] = click.style(val, bold=True, fg='red')
-        elif v >= soft_limit:
-            info[i] = click.style(val, fg='yellow')
-
-
-def flatten(enumerable):
-    return ' '.join(str(i) for i in enumerable)
-
-
-def each_row(rows, flattener):
-    for row in rows:
-        row = list(row)  # copy row to avoid stomping on original items
-        if flattener:
-            for i, item in enumerate(row):
-                if is_iterable(item):
-                    row[i] = flattener(item)
-            yield row
-            continue
-        # extract out a _copy_ of iterable items and populate into "exploded" rows
-        iterables = {i: list(item) for i, item in enumerate(row) if is_iterable(item)}
-        exploded = row
-        while True:
-            exploding = False
-            for i, iterable in iterables.iteritems():
-                if len(iterable) > 0:
-                    exploding = True
-                    exploded[i] = iterable.pop(0)
-            if not exploding:
-                break
-            yield exploded
-            exploded = [''] * len(row)  # reset next row with empty columns
+def events(obj, columns):
+    '''Show events associated with matched nodes, pods, and/or containers.'''
+    if obj.namespace == Kubey.ANY and '-c' not in sys.argv and '--columns' not in sys.argv:
+        columns = ['namespace'] + columns
+    for line in tabular.lines(obj, obj.kubey.each_event(obj.maximum), columns):
+        click.echo(line)
 
 
 # not using shlex/pipes.quote because we want glob expansion for remote calls
 def quote(arg):
-    if ' ' not in arg or _skip_re.match(arg):
+    if ' ' not in arg or re.match(r'^[\'"].*[\'"]$', arg):
         return arg
     if "'" in arg:
         if '"' in arg:
             raise ValueError('Unable to quote: ' + arg)
         return '"' + arg + '"'
     return "'" + arg + "'"
-
-
-def is_iterable(item):
-    # just simple ones for now
-    return isinstance(item, list) or isinstance(item, tuple)
 
 
 ##########################

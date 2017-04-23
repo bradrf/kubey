@@ -12,8 +12,8 @@ with open('HISTORY.rst') as history_file:
 requirements = [
     'click>=6.7',
     'tabulate>=0.7.7',
-    'configstruct>=0.3.0',
-    'jmespath>=0.9.2',
+    'configstruct>=0.3.1',
+    'python-dateutil>=2.6.0',
 ]
 
 test_requirements = [
@@ -22,7 +22,7 @@ test_requirements = [
 
 setup(
     name='kubey',
-    version='0.4.1',
+    version='1.0.1',
     description="Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous commands.",
     long_description=readme + '\n\n' + history,
     author="Brad Robel-Forrest",

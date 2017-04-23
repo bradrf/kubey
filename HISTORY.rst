@@ -2,6 +2,14 @@
 History
 =======
 
+1.0.0 (2017-04-23)
+------------------
+
+* Refactor everything into real objects for cleaner separation of concerns.
+* Add events report.
+* Rework raw kubectl requests and usage.
+
+
 0.4.0 (2017-04-14)
 ------------------
 

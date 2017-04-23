@@ -8,12 +8,12 @@ class TableRowPopen(subprocess.Popen):
     def __init__(self, row_handler, *args, **kwargs):
         self._row_handler = row_handler
         kwargs['stdout'] = subprocess.PIPE
-        super(self.__class__, self).__init__(*args, **kwargs)
+        super(TableRowPopen, self).__init__(*args, **kwargs)
         self._stdout_thread = Thread(target=self._parse_table)
         self._stdout_thread.start()
 
     def wait(self):
-        result = super(self.__class__, self).wait()
+        result = super(TableRowPopen, self).wait()
         self._stdout_thread.join()
         return result
 
