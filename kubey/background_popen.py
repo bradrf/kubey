@@ -29,4 +29,4 @@ class BackgroundPopen(subprocess.Popen):
                 line = io.readline()
                 if not line:
                     break
-                handler(line)
+                handler(line.decode('utf-8'))

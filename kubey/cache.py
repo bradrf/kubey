@@ -1,6 +1,13 @@
 import os
+import io
 import json
 import time
+
+# Python 3 compatibility (no longer includes `unicode`):
+try:
+    unicode
+except NameError:
+    unicode = str
 
 
 class Cache(object):
@@ -23,20 +30,22 @@ class Cache(object):
         if self._is_stale():
             self._update()
         elif not self._obj:
-            with open(self.path) as f:
+            with io.open(self.path, 'r', encoding='utf-8') as f:
                 self._obj = json.load(f)
 
     def _is_stale(self):
         if not self._expiry:
             if not os.path.exists(self.path):
                 return True
+            if os.path.getsize(self.path) < 1:
+                return True
             self._set_expiry()
         return self._expiry < time.time()
 
     def _update(self):
         self._obj = self.retriever(*self.retriever_args)
-        with open(self.path, 'wb') as f:
-            json.dump(self._obj, f)
+        with io.open(self.path, 'w', encoding='utf-8') as f:
+            f.write(unicode(json.dumps(self._obj, ensure_ascii=False)))
         self._set_expiry()
 
     def _set_expiry(self):

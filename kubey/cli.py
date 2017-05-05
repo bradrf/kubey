@@ -256,7 +256,7 @@ def ctl_each(obj, command, arguments):
     ns_pods = defaultdict(list)
     for pod in obj.kubey.each_pod(obj.maximum):
         ns_pods[pod.namespace].append(pod)
-    for ns, pods in ns_pods.iteritems():
+    for ns, pods in ns_pods.items():
         args = ['-n', ns] + list(arguments) + [p.name for p in pods]
         kubectl.call_table_rows(collector.handler_for(ns), command, *args)
     kubectl.wait()

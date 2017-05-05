@@ -34,7 +34,7 @@ class Responder(object):
         cmd = ' '.join(map(str, args))
         expect = self.expects[cmd]
         del self.expects[cmd]
-        return expect.and_return
+        return expect.and_return.encode('utf-8')
 
     def expect(self, cmd, **kwargs):
         self.expects[cmd] = OpenStruct(kwargs)
