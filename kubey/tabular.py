@@ -72,7 +72,7 @@ def each_row(items, flattener, row_extractor):
         exploded = row
         while True:
             exploding = False
-            for i, iterable in iterables.iteritems():
+            for i, iterable in iterables.items():
                 if len(iterable) > 0:
                     exploding = True
                     exploded[i] = iterable.pop(0)
@@ -94,7 +94,7 @@ def expand(item):
     if isinstance(item, types.GeneratorType):
         return list(item)
     if isinstance(item, dict):
-        return ['{0}={1}'.format(k, v) for k, v in item.iteritems()]
+        return ['{0}={1}'.format(k, v) for k, v in item.items()]
     return item
 
 

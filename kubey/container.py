@@ -14,8 +14,8 @@ class Container(Item):
         state_info = status['state']
         if len(state_info) != 1:
             raise self.UnknownStateError(str(status))
-        self.state = state_info.keys()[0]
-        state_details = state_info.values()[0]
+        self.state = list(state_info.keys())[0]
+        state_details = list(state_info.values())[0]
         self.started_at = timestamp.parse(state_details.get('startedAt'))
         self.restart_count = status['restartCount']
         self.ready = status['ready']

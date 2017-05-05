@@ -13,7 +13,8 @@ _logger = logging.getLogger(__name__)
 
 class KubeCtl(object):
     def __init__(self, context=None, config=None):
-        self._kubectl = subprocess.check_output('which kubectl', shell=True).strip()
+        val = subprocess.check_output('which kubectl', shell=True).strip()
+        self._kubectl = val.decode('utf-8')
         self._context = context
         self._config = config
         self._processes = []
@@ -23,8 +24,8 @@ class KubeCtl(object):
     @property
     def context(self):
         if self._context is None:
-            self._context = subprocess.check_output(
-                self._commandline('config', 'current-context')).strip()
+            ctx = subprocess.check_output(self._commandline('config', 'current-context')).strip()
+            self._context = ctx.decode('utf-8')  # returns a bytestring
         return self._context
 
     @property
@@ -39,7 +40,8 @@ class KubeCtl(object):
 
     def call_capture(self, cmd, *args):
         cl = self._commandline(cmd, *args)
-        return subprocess.check_output(cl)
+        val = subprocess.check_output(cl)
+        return val.decode('utf-8')
 
     def call_json(self, cmd, *args):
         return json.loads(self.call_capture(cmd, '--output=json', *args))
