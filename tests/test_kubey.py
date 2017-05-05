@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import time
+import json
 import pytest
 import mockfs
 
@@ -23,6 +24,7 @@ class Responder(object):
     def __init__(self, name):
         self.name = name
         self.expects = {}
+        self.prev = None
 
     @property
     def is_satisfied(self):
@@ -32,9 +34,16 @@ class Responder(object):
         if len(args) == 1 and isinstance(args[0], list):
             args = args[0]
         cmd = ' '.join(map(str, args))
+        if cmd not in self.expects:
+            pytest.fail('Did not expect response for "{0}" (previous success: {1})'
+                        .format(cmd, self.prev))
         expect = self.expects[cmd]
         del self.expects[cmd]
-        return expect.and_return
+        self.prev = cmd
+        resp = expect.and_return
+        if not isinstance(resp, str):
+            resp = json.dumps(resp)
+        return resp
 
     def expect(self, cmd, **kwargs):
         self.expects[cmd] = OpenStruct(kwargs)
@@ -90,8 +99,9 @@ class TestCli(MockSubprocess):
         self.responders.check_output.expect('which kubectl', and_return='mykubectl')
         self.responders.check_output.expect('mykubectl config current-context', and_return='myctx')
         self.responders.check_output.expect(
-            'mykubectl --context myctx get --output=json pods --all-namespaces',
-            and_return='{"items":[]}'
+            'mykubectl --context myctx get -o=json namespaces', and_return={
+                'items': [{'metadata': {'name': 'one'}, 'status': {'phase': 'Active'}}]
+            }
         )
         runner = CliRunner()
         result = runner.invoke(cli.cli, ['-n', '.', '--wide', 'myprod'], catch_exceptions=False)

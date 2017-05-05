@@ -52,8 +52,6 @@ _pod_columns = ColumnsOption(Pod)
 
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
 @click.version_option()
-@click.option('--cache-seconds', envvar='KUBEY_CACHE_SECONDS', default=300, show_default=True,
-              help='change number of seconds to keep pod info cached')
 @click.option('-l', '--log-level', envvar='KUBEY_LOG_LEVEL',
               type=click.Choice(('debug', 'info', 'warning', 'error', 'critical')),
               default='info', help='set logging level')
@@ -68,8 +66,7 @@ _pod_columns = ColumnsOption(Pod)
 @click.option('--wide', is_flag=True, help='force use of wide output')
 @click.argument('match')
 @click.pass_context
-def cli(ctx, cache_seconds, log_level, context, namespace,
-        table_format, maximum, no_headers, wide, match):
+def cli(ctx, log_level, context, namespace, table_format, maximum, no_headers, wide, match):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands (default is to list those that matched).
 
@@ -110,6 +107,19 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
     hard_percent_limit = 80     # TODO: consider making cfg'abl
     soft_percent_limit = hard_percent_limit * (hard_percent_limit / 100.0)
 
+    if ctx.invoked_subcommand:
+        cli_command = None
+    else:
+        cli_command = list_pods
+        # FIXME: must be a better way to see about generic click command lookup
+        mod = sys.modules[__name__]
+        for ent in dir(mod):
+            val = getattr(mod, ent)
+            if isinstance(val, click.core.Command) and val.name == match:
+                cli_command = val
+                match = ''
+                break
+
     ctx.obj = OpenStruct(
         highlight_ok=highlight_with('green'),
         highlight_warn=highlight_with('yellow'),
@@ -117,7 +127,6 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
         hard_percent_limit=hard_percent_limit,
         soft_percent_limit=soft_percent_limit,
         cache_path=os.path.expanduser('~'),
-        cache_seconds=cache_seconds,
         context=context,
         namespace=namespace,
         table_format=table_format,
@@ -134,8 +143,8 @@ def cli(ctx, cache_seconds, log_level, context, namespace,
     signal.signal(signal.SIGINT, handle_interrupt)
     signal.signal(signal.SIGTERM, handle_interrupt)
 
-    if not ctx.invoked_subcommand:
-        ctx.invoke(list_pods)
+    if cli_command:
+        ctx.invoke(cli_command)
 
 
 @cli.command()

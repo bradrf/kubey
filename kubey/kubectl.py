@@ -12,6 +12,16 @@ _logger = logging.getLogger(__name__)
 
 
 class KubeCtl(object):
+    class OutputCollector(object):
+        def __init__(self):
+            self.lines = []
+
+        def append(self, line):
+            self.lines.append(line)
+
+        def as_json(self):
+            return json.loads(''.join(self.lines))
+
     def __init__(self, context=None, config=None):
         self._kubectl = subprocess.check_output('which kubectl', shell=True).strip()
         self._context = context
@@ -42,7 +52,7 @@ class KubeCtl(object):
         return subprocess.check_output(cl)
 
     def call_json(self, cmd, *args):
-        return json.loads(self.call_capture(cmd, '--output=json', *args))
+        return json.loads(self.call_capture(cmd, '-o=json', *args))
 
     def call_async(self, cmd, *args):
         cl = self._commandline(cmd, *args)
@@ -61,6 +71,17 @@ class KubeCtl(object):
     def call_table_rows(self, row_handler, cmd, *args):
         cl = self._commandline(cmd, *args)
         proc = TableRowPopen(row_handler, cl)
+        self._processes.append((cl, proc))
+        return 0
+
+    def call_async_json(self, cmd, *args):
+        collector = self.OutputCollector()
+        self.call_async_collect(collector.append, cmd, '-o=json', *args)
+        return collector
+
+    def call_async_collect(self, collector, cmd, *args):
+        cl = self._commandline(cmd, *args)
+        proc = BackgroundPopen(collector, None, cl)
         self._processes.append((cl, proc))
         return 0
 
