@@ -43,7 +43,7 @@ class Responder(object):
         resp = expect.and_return
         if not isinstance(resp, str):
             resp = json.dumps(resp)
-        return resp
+        return resp.encode('utf-8')
 
     def expect(self, cmd, **kwargs):
         self.expects[cmd] = OpenStruct(kwargs)

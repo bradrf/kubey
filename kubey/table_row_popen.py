@@ -21,7 +21,7 @@ class TableRowPopen(subprocess.Popen):
         line_number = 0
         with self.stdout as io:
             while True:
-                line = io.readline().rstrip()
+                line = io.readline().rstrip().decode('utf-8')
                 if not line:
                     break
                 line_number += 1
