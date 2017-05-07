@@ -14,42 +14,6 @@ from .event import Event
 _logger = logging.getLogger(__name__)
 
 
-# FIXME: this happened when running the following command and hitting cntrl-c:
-# (kubey) > kubey -n collab-staging canary/collab tail -f
-# ...logs and stuff for a minute...
-# ^CTraceback (most recent call last):
-#   File "/Users/brad/.virtualenvs/kubey/bin/kubey", line 11, in <module>
-#     load_entry_point('kubey', 'console_scripts', 'kubey')()
-#   File "/Users/brad/.virtualenvs/kubey/lib/python2.7/site-packages/click/core.py", line 722, in __call__
-#     return self.main(*args, **kwargs)
-#   File "/Users/brad/.virtualenvs/kubey/lib/python2.7/site-packages/click/core.py", line 697, in main
-#     rv = self.invoke(ctx)
-#   File "/Users/brad/.virtualenvs/kubey/lib/python2.7/site-packages/click/core.py", line 1066, in invoke
-#     return _process_result(sub_ctx.command.invoke(sub_ctx))
-#   File "/Users/brad/.virtualenvs/kubey/lib/python2.7/site-packages/click/core.py", line 895, in invoke
-#     return ctx.invoke(self.callback, **ctx.params)
-#   File "/Users/brad/.virtualenvs/kubey/lib/python2.7/site-packages/click/core.py", line 535, in invoke
-#     return callback(*args, **kwargs)
-#   File "/Users/brad/.virtualenvs/kubey/lib/python2.7/site-packages/click/decorators.py", line 27, in new_func
-#     return f(get_current_context().obj, *args, **kwargs)
-#   File "/Users/brad/work/kubey/kubey/cli.py", line 310, in tail
-#     kubectl.wait()
-#   File "/Users/brad/work/kubey/kubey/kubectl.py", line 92, in wait
-#     self._check(cl, proc.wait())
-#   File "/usr/local/Cellar/python/2.7.13/Frameworks/Python.framework/Versions/2.7/lib/python2.7/subprocess.py", line 1073, in wait
-#     pid, sts = _eintr_retry_call(os.waitpid, self.pid, 0)
-#   File "/usr/local/Cellar/python/2.7.13/Frameworks/Python.framework/Versions/2.7/lib/python2.7/subprocess.py", line 121, in _eintr_retry_call
-#     return func(*args)
-#   File "/Users/brad/work/kubey/kubey/cli.py", line 141, in handle_interrupt
-#     ctx.obj.kubey.kubectl.kill(signal)
-#   File "/Users/brad/work/kubey/kubey/kubectl.py", line 100, in kill
-#     proc.send_signal(signal)
-#   File "/usr/local/Cellar/python/2.7.13/Frameworks/Python.framework/Versions/2.7/lib/python2.7/subprocess.py", line 1243, in send_signal
-#     os.kill(self.pid, sig)
-# OSError: [Errno 3] No such process
-
-
-
 class Kubey(object):
     class UnknownNamespace(ValueError):
         pass

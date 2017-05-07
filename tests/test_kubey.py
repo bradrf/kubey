@@ -87,8 +87,8 @@ class TestCli(object):
                          }) \
                          .process
         # now, provide pod json responses to background popen request
-        bg_out.readline.side_effect = ('{}', '')
-        bg_err.readline.side_effect = ('',)
+        bg_out.readline.side_effect = (b'{}', b'')
+        bg_err.readline.side_effect = (b'',)
         runner = CliRunner()
         result = runner.invoke(cli.cli, ['-n', '.', '--wide', 'myprod'], catch_exceptions=False)
         exp = ['node', 'status', 'name', 'node-ip', 'namespace', 'containers']

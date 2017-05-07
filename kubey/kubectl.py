@@ -20,7 +20,7 @@ class KubeCtl(object):
             self.lines.append(line)
 
         def as_json(self):
-            return json.loads(''.join(self.lines))
+            return json.loads(''.join(self.lines)) if self.lines else None
 
     def __init__(self, context=None, config=None):
         val = subprocess.check_output('which kubectl', shell=True).strip()
