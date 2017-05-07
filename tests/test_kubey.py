@@ -9,15 +9,16 @@ Tests for `kubey` module.
 
 import os
 import re
-import subprocess
 import time
 import json
 import pytest
 import mockfs
 
+from mock import patch
 from click.testing import CliRunner
-from kubey import cli
 from configstruct import OpenStruct
+from kubey import cli
+from kubey.background_popen import BackgroundPopen
 
 
 class Responder(object):
@@ -47,44 +48,21 @@ class Responder(object):
 
     def expect(self, cmd, **kwargs):
         self.expects[cmd] = OpenStruct(kwargs)
+        return self
 
     def __repr__(self):
         return '<Responder: name=%s expects=%s>' % (self.name, self.expects)
 
 
-class MockSubprocess(object):
-    ATTRS = ('check_output', 'call', 'Popen')
-
+class TestCli(object):
     def setup(self):
         def mock_getmtime(_):
             return time.time()
         os.path.getmtime = mock_getmtime
         self.mfs = mockfs.replace_builtins()
-        self.responders = OpenStruct()
-        for name in self.ATTRS:
-            self._intercept(name)
 
     def teardown(self):
         mockfs.restore_builtins()
-        for name in self.ATTRS:
-            self._release(name)
-
-    def _intercept(self, name):
-        attr = getattr(subprocess, name)
-        setattr(self, '_orig_' + name, attr)
-        responder = self.responders[name] = Responder(name)
-        setattr(subprocess, name, responder.process)
-
-    def _release(self, name):
-        attr = getattr(self, '_orig_' + name)
-        setattr(subprocess, name, attr)
-        delattr(self, '_orig_' + name)
-        responder = self.responders[name]
-        if not responder.is_satisfied:
-            pytest.fail('Unsatisfied responder: %s' % responder)
-
-
-class TestCli(MockSubprocess):
 
     def test_command_line_interface(self):
         runner = CliRunner()
@@ -95,14 +73,22 @@ class TestCli(MockSubprocess):
         assert help_result.exit_code == 0
         assert 'Show this message and exit.' in help_result.output
 
-    def test_empty_list(self):
-        self.responders.check_output.expect('which kubectl', and_return='mykubectl')
-        self.responders.check_output.expect('mykubectl config current-context', and_return='myctx')
-        self.responders.check_output.expect(
-            'mykubectl --context myctx get -o=json namespaces', and_return={
-                'items': [{'metadata': {'name': 'one'}, 'status': {'phase': 'Active'}}]
-            }
-        )
+    @patch('subprocess.Popen.__init__', return_value=None)
+    @patch('subprocess.Popen.wait')
+    @patch.object(BackgroundPopen, 'stderr', create=True)
+    @patch.object(BackgroundPopen, 'stdout', create=True)
+    @patch('subprocess.check_output')
+    def test_empty_list(self, mock_check_output, bg_out, bg_err, mock_wait, mock_init):
+        mock_check_output.side_effect = Responder(str(mock_check_output)) \
+                         .expect('which kubectl', and_return='mykubectl') \
+                         .expect('mykubectl config current-context', and_return='myctx') \
+                         .expect('mykubectl --context myctx get -o=json namespaces', and_return={
+                             'items': [{'metadata': {'name': 'one'}, 'status': {'phase': 'Active'}}]
+                         }) \
+                         .process
+        # now, provide pod json responses to background popen request
+        bg_out.readline.side_effect = ('{}', '')
+        bg_err.readline.side_effect = ('',)
         runner = CliRunner()
         result = runner.invoke(cli.cli, ['-n', '.', '--wide', 'myprod'], catch_exceptions=False)
         exp = ['node', 'status', 'name', 'node-ip', 'namespace', 'containers']
